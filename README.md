@@ -37,6 +37,42 @@ sequenceDiagram
     TLS->>Client: Encrypted Response
 ```
 
+## System Topology
+
+This diagram visualizes the high-level management plane topology. The **API Server** acts as the central control point, abstracting the complexity of the underlying network hardware from the client.
+
+```mermaid
+graph TD
+    subgraph "Clients"
+        A[Postman / Curl]
+        B[Automation Scripts]
+    end
+
+    subgraph "Management Plane"
+        C[("REST API Server<br/>(This Project)")]
+    end
+
+    subgraph "Simulated Network Layer"
+        D["Core Router<br/>(Cisco ASR)"]
+        E["Distribution Switch<br/>(Cisco Catalyst)"]
+        F["Access Switch<br/>(Juniper EX)"]
+    end
+
+    %% Connections
+    A -->|HTTPS / JSON| C
+    B -->|HTTPS / JSON| C
+    
+    C -.->|Simulated SSH/NETCONF| D
+    C -.->|Simulated SSH/NETCONF| E
+    C -.->|Simulated SSH/NETCONF| F
+
+    %% Styling
+    style C fill:#f9f,stroke:#333,stroke-width:2px,color:black
+    style D fill:#ccf,stroke:#333,stroke-width:2px,color:black
+    style E fill:#ccf,stroke:#333,stroke-width:2px,color:black
+    style F fill:#ccf,stroke:#333,stroke-width:2px,color:black
+```
+
 ## Internal Components
 
 ### 1. Entry Point (Server Layer)
@@ -62,6 +98,65 @@ Located in `internal/models/`.
 - Defines the strict schema for data entities using Go structs.
 - **Device**: Defines properties like `Hostname`, `IP`, `Model`, `OS`.
 - **Interface**: Defines properties like `Name`, `Status`, `IPAddress`.
+
+### 5. Deep Dive: The Data Transformation (Marshaling)
+
+This is the most critical part of understanding a REST API. It is the process of converting "Memory Code" into "Network Text".
+
+#### What is Marshaling?
+**Marshaling** is the act of taking a Go Struct (a data object living in the server's RAM) and turning it into a JSON string that can be sent over the internet.
+
+#### What is Unmarshaling?
+**Unmarshaling** is the reverse: taking a JSON string received from the internet and converting it back into a Go Struct so the code can understand and use it.
+
+The following diagram visualizes this "Translation" process, showing exactly how the `json:"tags"` in our code act as the translator.
+
+```mermaid
+graph LR
+    subgraph "Go Memory (RAM)"
+        direction TB
+        Struct[("Struct: Device")]
+        Field1["Hostname (string)"]
+        Field2["IP (string)"]
+        Field3["Model (string)"]
+    end
+
+    subgraph "Translation Layer"
+        Tag1{{"`json:\"hostname\"`"}}
+        Tag2{{"`json:\"ip\"`"}}
+        Tag3{{"`json:\"model\"`"}}
+    end
+
+    subgraph "Network Data (JSON)"
+        JsonOpen["{"]
+        Key1["hostname: core-router-01"]
+        Key2["ip: 192.168.1.1"]
+        Key3["model: Cisco ASR 1000"]
+        JsonClose["}"]
+    end
+
+    %% Wiring
+    Struct --- Field1
+    Struct --- Field2
+    Struct --- Field3
+
+    Field1 -->|Marshal| Tag1 --> Key1
+    Field2 -->|Marshal| Tag2 --> Key2
+    Field3 -->|Marshal| Tag3 --> Key3
+
+    Key1 -.->|Unmarshal| Tag1 -.-> Field1
+    Key2 -.->|Unmarshal| Tag2 -.-> Field2
+    Key3 -.->|Unmarshal| Tag3 -.-> Field3
+
+    style Struct fill:#FFD700,color:black
+    style JsonOpen fill:#fff,stroke:none
+    style JsonClose fill:#fff,stroke:none
+    style Tag1 fill:#f96,color:white
+    style Tag2 fill:#f96,color:white
+    style Tag3 fill:#f96,color:white
+```
+
+**Key Takeaway:** The `json:"..."` tags in `internal/models/device.go` are the instructions for this machine. Without them, the API would not know how to name the keys in the response.
 
 ## Getting Started
 
