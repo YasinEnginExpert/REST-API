@@ -9,42 +9,101 @@ The core objective is to manage network entities—specifically Devices and Inte
 
 The following diagram illustrates the transparent lifecycle of a request within this API. It details the journey from the client to the specific Data Model and back.
 
+## For Network Engineers: The "Layer 7" Perspective
+
+If you are coming from a Routing & Switching background, "Code" can look abstract. Let's map this project to the **OSI Model** / **TCP/IP Stack** you already know.
+
+### Where does this API live?
+This entire project runs at **Layer 7 (Application Layer)**.
+
+*   **Layer 4 (Transport)**: The OS handles the TCP connection (SYN, SYN-ACK, ACK) on Port 3000.
+*   **Layer 7 (Application)**: Our Go code takes the raw data stream from Layer 4 and processes it as HTTP.
+
+```mermaid
+graph LR
+    subgraph "OSI Model"
+        L1[Layer 1: Physical]
+        L2[Layer 2: Data Link]
+        L3[Layer 3: Network]
+        L4[Layer 4: Transport]
+        L7[Layer 7: Application]
+    end
+
+    subgraph "Your Code's Responsibility"
+        GoNet["net/http Library"]
+        GoLogic["Your Handlers"]
+        GoData["Your Structs (JSON)"]
+    end
+
+    L7 --- GoNet
+    GoNet --> GoLogic
+    GoLogic --> GoData
+
+    style L7 fill:#f9f,stroke:#333
+    style GoNet fill:#ccf,stroke:#333
+    style GoLogic fill:#cfc,stroke:#333
+```
+
+---
+
+### Deep Dive: JSON Marshaling = Data Encapsulation
+
+In networking, **Encapsulation** is when you take data (payload) and wrap it with headers (IP Header, TCP Header) to make it travel-ready.
+
+**JSON Marshaling** is exactly the same concept.
+
+*   **The Payload**: Your Go Struct (the raw data in memory).
+*   **The Encapsulation**: The JSON formatting (`{ "key": "value" }`) wraps your data so it can travel over the wire (HTTP Body).
+*   **The Tag (`json:"ip"`)**: Think of this like a **Protocol Field**. It tells the "Encapsulator" exactly how to format the header for that specific piece of data.
+
+#### The "Packet Flow" of a JSON Object
+
+Here is the naked truth of how a Go Struct becomes a JSON Byte Stream:
+
 ```mermaid
 sequenceDiagram
-    participant Client as Client (Postman/Curl)
-    participant TLS as TLS Layer (HTTPS)
-    participant Mux as HTTP Multiplexer (Router)
-    participant Handler as Logic Layer (Handlers)
-    participant Model as Data Domain (Structs)
+    autonumber
+    participant RAM as Go Memory (Struct)
+    participant Encoder as JSON Encoder (The "Protocol Stack")
+    participant Tag as Struct Tag (The "Policy")
+    participant Wire as HTTP Wire (Layer 7 Payload)
 
-    Note over Client, TLS: 1. Secure Connection Establishment
-    Client->>TLS: HTTPS Request (GET /devices)
-    TLS->>TLS: Handshake & Decryption
-    TLS->>Mux: Decrypted HTTP Request
+    Note right of RAM: We have a "Device" object<br/>Hostname="R1", IP="10.0.0.1"
 
-    Note over Mux, Handler: 2. Routing Decision
-    Mux->>Mux: Match URL Path (/devices)
-    Mux->>Handler: Dispatch to GetDevices()
+    RAM->>Encoder: "Send this object!"
+    
+    rect rgb(240, 248, 255)
+        Note over Encoder, Tag: Phase 1: Inspection (Reflection)
+        Encoder->>RAM: "What fields do you have?"
+        RAM-->>Encoder: "I have 'Hostname' and 'IP'"
+        
+        Encoder->>Tag: "How should I label 'Hostname'?"
+        Tag-->>Encoder: "Label it as 'hostname' (lowercase)"
+    end
 
-    Note over Handler, Model: 3. Business Logic Execution
-    Handler->>Handler: Validate Request
-    Handler->>Model: Initialize Device Data Structures
-    Model-->>Handler: Return Data Objects (Structs)
+    rect rgb(255, 240, 245)
+        Note over Encoder, Wire: Phase 2: Serialization (Encapsulation)
+        Encoder->>Wire: Write Open Brace "{"
+        Encoder->>Wire: Write Key "hostname": Value "R1"
+        Encoder->>Wire: Write Key "ip": Value "10.0.0.1"
+        Encoder->>Wire: Write Close Brace "}"
+    end
 
-    Note over Handler, Client: 4. Response Marshalling
-    Handler->>Handler: Marshal Structs to JSON
-    Handler->>TLS: HTTP 200 OK + JSON Body
-    TLS->>Client: Encrypted Response
+    Note right of Wire: Result: {"hostname":"R1", "ip":"10.0.0.1"}<br/>Ready for TCP Transmission
 ```
 
 ## System Topology
 
 This diagram visualizes the high-level management plane topology. The **API Server** acts as the central control point, abstracting the complexity of the underlying network hardware from the client.
 
+## High-Level Topology
+
+This diagram visualizes the macro-view of the Management Plane.
+
 ```mermaid
 graph TD
     subgraph "Clients"
-        A[Postman / Curl]
+        A[Postman Client]
         B[Automation Scripts]
     end
 
@@ -53,18 +112,18 @@ graph TD
     end
 
     subgraph "Simulated Network Layer"
-        D["Core Router<br/>(Cisco ASR)"]
-        E["Distribution Switch<br/>(Cisco Catalyst)"]
-        F["Access Switch<br/>(Juniper EX)"]
+        D["Core Router"]
+        E["Distribution Switch"]
+        F["Access Switch"]
     end
 
     %% Connections
     A -->|HTTPS / JSON| C
     B -->|HTTPS / JSON| C
     
-    C -.->|Simulated SSH/NETCONF| D
-    C -.->|Simulated SSH/NETCONF| E
-    C -.->|Simulated SSH/NETCONF| F
+    C -.->|Management Proto| D
+    C -.->|Management Proto| E
+    C -.->|Management Proto| F
 
     %% Styling
     style C fill:#f9f,stroke:#333,stroke-width:2px,color:black
@@ -72,6 +131,73 @@ graph TD
     style E fill:#ccf,stroke:#333,stroke-width:2px,color:black
     style F fill:#ccf,stroke:#333,stroke-width:2px,color:black
 ```
+
+## System Topology (Exploded View)
+
+This diagram opens up the "Black Box" of the API Server. It shows exactly how a request flows through the internal layers of your project structure (`cmd`, `internal/api`, `internal/models`).
+
+```mermaid
+graph TD
+    %% Global Styling
+    classDef client fill:#f9f,stroke:#333,stroke-width:2px;
+    classDef server fill:#e1f5fe,stroke:#0277bd,stroke-width:2px;
+    classDef code fill:#fff9c4,stroke:#fbc02d,stroke-width:1px;
+    classDef network fill:#e0f2f1,stroke:#00695c,stroke-width:2px;
+
+    subgraph "User / Client Layer"
+        Postman[("Postman Client")]:::client
+    end
+
+    subgraph "Management Plane (Your Project)"
+        direction TB
+        
+        subgraph "cmd/api/main.go"
+            EntryPoint("HTTPS Server (Port 3000)"):::code
+        end
+
+        subgraph "internal/api/routers.go"
+            Router{"URL Router<br/>(Multiplexer)"}:::code
+        end
+
+        subgraph "internal/api/handlers/"
+            H_Dev["Device Handler<br/>(devices.go)"]:::code
+            H_Int["Interface Handler<br/>(interfaces.go)"]:::code
+        end
+
+        subgraph "internal/models/"
+            M_Dev[("Device Struct")]:::code
+            M_Int[("Interface Struct")]:::code
+        end
+    end
+
+    subgraph "Network Infrastructure"
+        Net_Router["Core Router"]:::network
+        Net_Switch["Access Switch"]:::network
+    end
+
+    %% Flow Connections
+    Postman ==>|1. HTTPS Request| EntryPoint
+    EntryPoint ==>|2. Pass to Router| Router
+    
+    Router ==>|3. /devices| H_Dev
+    Router ==>|3. /interfaces| H_Int
+
+    H_Dev -.->|4. Create Data| M_Dev
+    H_Int -.->|4. Create Data| M_Int
+
+    H_Dev -.->|5. JSON Response| Postman
+    H_Int -.->|5. JSON Response| Postman
+
+    %% Theoretical Connection to Network
+    H_Dev -.->|Simulated SSH| Net_Router
+```
+
+**What you are seeing:**
+1.  **Entry**: The request hits `main.go`.
+2.  **Routing**: `routers.go` decides where it goes.
+3.  **Handling**: The specific code in `handlers/` executes.
+4.  **Modeling**: The code uses blueprints from `models/` to structure data.
+5.  **Response**: The structured data is sent back to Postman.
 
 ## Internal Components
 
@@ -99,64 +225,7 @@ Located in `internal/models/`.
 - **Device**: Defines properties like `Hostname`, `IP`, `Model`, `OS`.
 - **Interface**: Defines properties like `Name`, `Status`, `IPAddress`.
 
-### 5. Deep Dive: The Data Transformation (Marshaling)
 
-This is the most critical part of understanding a REST API. It is the process of converting "Memory Code" into "Network Text".
-
-#### What is Marshaling?
-**Marshaling** is the act of taking a Go Struct (a data object living in the server's RAM) and turning it into a JSON string that can be sent over the internet.
-
-#### What is Unmarshaling?
-**Unmarshaling** is the reverse: taking a JSON string received from the internet and converting it back into a Go Struct so the code can understand and use it.
-
-The following diagram visualizes this "Translation" process, showing exactly how the `json:"tags"` in our code act as the translator.
-
-```mermaid
-graph LR
-    subgraph "Go Memory (RAM)"
-        direction TB
-        Struct[("Struct: Device")]
-        Field1["Hostname (string)"]
-        Field2["IP (string)"]
-        Field3["Model (string)"]
-    end
-
-    subgraph "Translation Layer"
-        Tag1{{"`json:\"hostname\"`"}}
-        Tag2{{"`json:\"ip\"`"}}
-        Tag3{{"`json:\"model\"`"}}
-    end
-
-    subgraph "Network Data (JSON)"
-        JsonOpen["{"]
-        Key1["hostname: core-router-01"]
-        Key2["ip: 192.168.1.1"]
-        Key3["model: Cisco ASR 1000"]
-        JsonClose["}"]
-    end
-
-    %% Wiring
-    Struct --- Field1
-    Struct --- Field2
-    Struct --- Field3
-
-    Field1 -->|Marshal| Tag1 --> Key1
-    Field2 -->|Marshal| Tag2 --> Key2
-    Field3 -->|Marshal| Tag3 --> Key3
-
-    Key1 -.->|Unmarshal| Tag1 -.-> Field1
-    Key2 -.->|Unmarshal| Tag2 -.-> Field2
-    Key3 -.->|Unmarshal| Tag3 -.-> Field3
-
-    style Struct fill:#FFD700,color:black
-    style JsonOpen fill:#fff,stroke:none
-    style JsonClose fill:#fff,stroke:none
-    style Tag1 fill:#f96,color:white
-    style Tag2 fill:#f96,color:white
-    style Tag3 fill:#f96,color:white
-```
-
-**Key Takeaway:** The `json:"..."` tags in `internal/models/device.go` are the instructions for this machine. Without them, the API would not know how to name the keys in the response.
 
 ## Getting Started
 
