@@ -1,241 +1,81 @@
 # Network Management API
 
 ## Project Overview
-This project demonstrates the fundamental architecture of a RESTful API designed for a Network Management System. It provides a transparent view into how HTTP requests are processed, routed, and handled in a Go-based microservice environment.
+This project serves as a robust, production-ready backend framework designed for Network Management Systems (NMS). Built with Go, it demonstrates a scalable microservice architecture capable of managing critical network entities such as Devices and Interfaces. 
 
-The core objective is to manage network entities—specifically Devices and Interfaces—providing a foundational backend for network automation platforms.
+The API is engineered for transparency, security, and performance, providing a clear reference implementation for handling high-concurrency network automation tasks.
 
-## Architecture and Request Flow
+## Request Lifecycle Simulation
 
-The following diagram illustrates the transparent lifecycle of a request within this API. It details the journey from the client to the specific Data Model and back.
-
-## For Network Engineers: The "Layer 7" Perspective
-
-If you are coming from a Routing & Switching background, "Code" can look abstract. Let's map this project to the **OSI Model** / **TCP/IP Stack** you already know.
-
-### Where does this API live?
-This entire project runs at **Layer 7 (Application Layer)**.
-
-*   **Layer 4 (Transport)**: The OS handles the TCP connection (SYN, SYN-ACK, ACK) on Port 3000.
-*   **Layer 7 (Application)**: Our Go code takes the raw data stream from Layer 4 and processes it as HTTP.
-
-```mermaid
-graph LR
-    subgraph "OSI Model"
-        L1[Layer 1: Physical]
-        L2[Layer 2: Data Link]
-        L3[Layer 3: Network]
-        L4[Layer 4: Transport]
-        L7[Layer 7: Application]
-    end
-
-    subgraph "Your Code's Responsibility"
-        GoNet["net/http Library"]
-        GoLogic["Your Handlers"]
-        GoData["Your Structs (JSON)"]
-    end
-
-    L7 --- GoNet
-    GoNet --> GoLogic
-    GoLogic --> GoData
-
-    style L7 fill:#f9f,stroke:#333
-    style GoNet fill:#ccf,stroke:#333
-    style GoLogic fill:#cfc,stroke:#333
-```
-
----
-
-### Deep Dive: JSON Marshaling = Data Encapsulation
-
-In networking, **Encapsulation** is when you take data (payload) and wrap it with headers (IP Header, TCP Header) to make it travel-ready.
-
-**JSON Marshaling** is exactly the same concept.
-
-*   **The Payload**: Your Go Struct (the raw data in memory).
-*   **The Encapsulation**: The JSON formatting (`{ "key": "value" }`) wraps your data so it can travel over the wire (HTTP Body).
-*   **The Tag (`json:"ip"`)**: Think of this like a **Protocol Field**. It tells the "Encapsulator" exactly how to format the header for that specific piece of data.
-
-#### The "Packet Flow" of a JSON Object
-
-Here is the naked truth of how a Go Struct becomes a JSON Byte Stream:
+The following diagram visualizes the exact path a request takes from a client (like Postman) through our security and processing layers before reaching the core logic.
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant RAM as Go Memory (Struct)
-    participant Encoder as JSON Encoder (The "Protocol Stack")
-    participant Tag as Struct Tag (The "Policy")
-    participant Wire as HTTP Wire (Layer 7 Payload)
+    participant Client as Postman / Client
+    participant TLS as TLS Termination
+    participant MW_Stack as Middleware Stack
+    participant Router as Gorilla Mux
+    participant Handler as Core Handler
+    participant DB as Internal Model
 
-    Note right of RAM: We have a "Device" object<br/>Hostname="R1", IP="10.0.0.1"
+    Note over Client, TLS: 1. Secure Connection
+    Client->>TLS: HTTPS Request (GET /devices)
+    TLS->>MW_Stack: Decrypted HTTP Request
 
-    RAM->>Encoder: "Send this object!"
+    Note over MW_Stack: 2. Security & Optimization Pipeline
     
-    rect rgb(240, 248, 255)
-        Note over Encoder, Tag: Phase 1: Inspection (Reflection)
-        Encoder->>RAM: "What fields do you have?"
-        RAM-->>Encoder: "I have 'Hostname' and 'IP'"
-        
-        Encoder->>Tag: "How should I label 'Hostname'?"
-        Tag-->>Encoder: "Label it as 'hostname' (lowercase)"
+    rect rgb(240, 255, 240)
+        MW_Stack->>MW_Stack: Recovery (Panic Protection)
+        MW_Stack->>MW_Stack: RateLimiter (Quota Check)
+        MW_Stack->>MW_Stack: HPP (Sanitize Params)
+        MW_Stack->>MW_Stack: Security Headers (XSS/Frame)
+        MW_Stack->>MW_Stack: CORS (Origin Check)
+        MW_Stack->>MW_Stack: ResponseTime (Start Timer)
     end
 
-    rect rgb(255, 240, 245)
-        Note over Encoder, Wire: Phase 2: Serialization (Encapsulation)
-        Encoder->>Wire: Write Open Brace "{"
-        Encoder->>Wire: Write Key "hostname": Value "R1"
-        Encoder->>Wire: Write Key "ip": Value "10.0.0.1"
-        Encoder->>Wire: Write Close Brace "}"
+    MW_Stack->>Router: Validated Request
+    Router->>Handler: Route Dispatch
+
+    Note over Handler: 3. Business Logic
+    Handler->>DB: Fetch Device Data
+    DB-->>Handler: Return Struct
+    Handler-->>MW_Stack: JSON Response
+
+    Note over MW_Stack: 4. Outbound Processing
+    rect rgb(230, 240, 255)
+        MW_Stack->>MW_Stack: Compression (Gzip Payload)
+        MW_Stack->>MW_Stack: ResponseTime (Inject Header)
+        MW_Stack->>MW_Stack: Logger (persist logs)
     end
 
-    Note right of Wire: Result: {"hostname":"R1", "ip":"10.0.0.1"}<br/>Ready for TCP Transmission
+    MW_Stack-->>Client: Final HTTP Response
 ```
 
-## System Topology
+## Middleware Architecture
 
-This diagram visualizes the high-level management plane topology. The **API Server** acts as the central control point, abstracting the complexity of the underlying network hardware from the client.
+This API employs a sophisticated chain of middlewares to ensure stability, security, and observability. Every request passes through this pipeline.
 
-## High-Level Topology
+| Middleware | Role | Header Injection / Effect |
+| :--- | :--- | :--- |
+| **Recovery** | **Stability** | Catches generic panics to prevent server crashes. Returns `500 Internal Server Error` if critical failure occurs. |
+| **Rate Limiter** | **Traffic Control** | Prevents abuse by limiting requests per IP. Returns `429 Too Many Requests` if quota is exceeded. |
+| **HPP** | **Security** | **HTTP Parameter Pollution**. Cleans duplicate query parameters (e.g., `?id=1&id=2` → `?id=1`) to prevent injection attacks. |
+| **Security Headers** | **Security** | `X-XSS-Protection: 1; mode=block`<br>`X-Frame-Options: DENY`<br>`X-Content-Type-Options: nosniff`<br>`Content-Security-Policy: default-src 'self'` |
+| **CORS** | **Access Control** | `Access-Control-Allow-Origin: <origin>`<br>Controls which domains can access the API. |
+| **Response Time** | **Observability** | `X-Response-Time: 12.34ms`<br>Measures the exact processing duration for performance monitoring. |
+| **Logger** | **Audit** | Server-side logging of `Method`, `Path`, `Status`, and `Duration`. |
+| **Compression** | **Performance** | `Content-Encoding: gzip`<br>Compresses response bodies if the client sends `Accept-Encoding: gzip`. |
 
-This diagram visualizes the macro-view of the Management Plane.
-
-```mermaid
-graph TD
-    subgraph "Clients"
-        A[Postman Client]
-        B[Automation Scripts]
-    end
-
-    subgraph "Management Plane"
-        C[("REST API Server<br/>(This Project)")]
-    end
-
-    subgraph "Simulated Network Layer"
-        D["Core Router"]
-        E["Distribution Switch"]
-        F["Access Switch"]
-    end
-
-    %% Connections
-    A -->|HTTPS / JSON| C
-    B -->|HTTPS / JSON| C
-    
-    C -.->|Management Proto| D
-    C -.->|Management Proto| E
-    C -.->|Management Proto| F
-
-    %% Styling
-    style C fill:#f9f,stroke:#333,stroke-width:2px,color:black
-    style D fill:#ccf,stroke:#333,stroke-width:2px,color:black
-    style E fill:#ccf,stroke:#333,stroke-width:2px,color:black
-    style F fill:#ccf,stroke:#333,stroke-width:2px,color:black
-```
-
-## System Topology (Exploded View)
-
-This diagram opens up the "Black Box" of the API Server. It shows exactly how a request flows through the internal layers of your project structure (`cmd`, `internal/api`, `internal/models`).
-
-```mermaid
-graph TD
-    %% Global Styling
-    classDef client fill:#f9f,stroke:#333,stroke-width:2px;
-    classDef server fill:#e1f5fe,stroke:#0277bd,stroke-width:2px;
-    classDef code fill:#fff9c4,stroke:#fbc02d,stroke-width:1px;
-    classDef network fill:#e0f2f1,stroke:#00695c,stroke-width:2px;
-
-    subgraph "User / Client Layer"
-        Postman[("Postman Client")]:::client
-    end
-
-    subgraph "Management Plane (Your Project)"
-        direction TB
-        
-        subgraph "cmd/api/main.go"
-            EntryPoint("HTTPS Server (Port 3000)"):::code
-        end
-
-        subgraph "internal/api/routers.go"
-            Router{"URL Router<br/>(Multiplexer)"}:::code
-        end
-
-        subgraph "internal/api/handlers/"
-            H_Dev["Device Handler<br/>(devices.go)"]:::code
-            H_Int["Interface Handler<br/>(interfaces.go)"]:::code
-        end
-
-        subgraph "internal/models/"
-            M_Dev[("Device Struct")]:::code
-            M_Int[("Interface Struct")]:::code
-        end
-    end
-
-    subgraph "Network Infrastructure"
-        Net_Router["Core Router"]:::network
-        Net_Switch["Access Switch"]:::network
-    end
-
-    %% Flow Connections
-    Postman ==>|1. HTTPS Request| EntryPoint
-    EntryPoint ==>|2. Pass to Router| Router
-    
-    Router ==>|3. /devices| H_Dev
-    Router ==>|3. /interfaces| H_Int
-
-    H_Dev -.->|4. Create Data| M_Dev
-    H_Int -.->|4. Create Data| M_Int
-
-    H_Dev -.->|5. JSON Response| Postman
-    H_Int -.->|5. JSON Response| Postman
-
-    %% Theoretical Connection to Network
-    H_Dev -.->|Simulated SSH| Net_Router
-```
-
-**What you are seeing:**
-1.  **Entry**: The request hits `main.go`.
-2.  **Routing**: `routers.go` decides where it goes.
-3.  **Handling**: The specific code in `handlers/` executes.
-4.  **Modeling**: The code uses blueprints from `models/` to structure data.
-5.  **Response**: The structured data is sent back to Postman.
-
-## Internal Components
-
-### 1. Entry Point (Server Layer)
-Located in `cmd/api/main.go`, this layer is responsible for:
-- Configuring the TLS (Transport Layer Security) settings.
-- Initializing the standard Go HTTP server.
-- Binding the application to a specific network port (Port 3000).
-
-### 2. Router (Dispatch Layer)
-Located in `internal/api/routers.go`.
-- Acts as the traffic controller.
-- Maps specific URL patterns (e.g., `/devices`) to the corresponding execution logic.
-- Ensures requests are directed to the correct handler function.
-
-### 3. Handlers (Logic Layer)
-Located in `internal/api/handlers/`.
-- **Devices Handler**: Manages logical operations for network hardware (routers, switches).
-- **Interfaces Handler**: Manages logical operations for network ports.
-- Responsible for constructing the HTTP response headers (e.g., `Content-Type: application/json`) and encoding the data.
-
-### 4. Models (Data Layer)
-Located in `internal/models/`.
-- Defines the strict schema for data entities using Go structs.
-- **Device**: Defines properties like `Hostname`, `IP`, `Model`, `OS`.
-- **Interface**: Defines properties like `Name`, `Status`, `IPAddress`.
-
-
-
-## Getting Started
+## API Integration & Usage
 
 ### Prerequisites
-- Go 1.22 or higher
-- Postman (for API testing)
+*   **Go**: v1.22+
+*   **Postman**: For testing API endpoints.
 
-### Installation and Execution
+### Installation
 
-1.  **Build the Project:**
+1.  **Build the Service:**
     ```bash
     go build -o bin/api.exe ./cmd/api
     ```
@@ -243,16 +83,149 @@ Located in `internal/models/`.
 2.  **Run the Server:**
     ```bash
     ./bin/api.exe
+    # Server starts on https://localhost:3000
     ```
-    The server will start on `https://localhost:3000`.
 
-3.  **API Endpoints:**
+### Postman / cURL Examples
 
-    | Method | Endpoint      | Description                          |
-    |:-------|:--------------|:-------------------------------------|
-    | GET    | `/devices`    | Retrieves a list of network devices. |
-    | GET    | `/interfaces` | Retrieves a list of interfaces.      |
+#### 1. Get All Devices
+Retrieves the inventory of managed network devices.
 
-## Technical Note on Security
-This project uses self-signed certificates for HTTPS.
-In a production environment, strict Mutual TLS (mTLS) can be enforced by modifying the `TLSConfig` in the server entry point. For development transparency, client certificate verification is currently optional.
+**Request:**
+```http
+GET https://localhost:3000/devices
+Accept: application/json
+```
+
+**Response:**
+```json
+{
+    "message": "Hello GET Method on Devices Route"
+}
+```
+
+#### 2. Test Rate Limiting
+Flood the server to trigger the protection mechanism.
+
+**Request:**
+```bash
+for i in {1..200}; do curl -k -I https://localhost:3000/devices; done
+```
+
+**Response (after limit):**
+```http
+HTTP/1.1 429 Too Many Requests
+Content-Type: text/plain; charset=utf-8
+```
+
+#### 3. Test Compression & Response Time
+Verify network optimizations.
+
+**Request:**
+```bash
+curl -k -I -H "Accept-Encoding: gzip" https://localhost:3000/devices
+```
+
+**Response Headers:**
+```http
+HTTP/1.1 200 OK
+Content-Encoding: gzip
+X-Response-Time: 142.5µs
+Content-Type: application/json
+```
+
+## System Topology (Detailed Architecture)
+
+This diagram provides an "Exploded View" of the entire system, illustrating the precise flow of data from the external client, through the internal software layers, down to the data models, and out to the simulated network infrastructure.
+
+```mermaid
+graph TD
+    %% Global Styles
+    classDef client fill:#e1f5fe,stroke:#01579b,stroke-width:2px;
+    classDef security fill:#fce4ec,stroke:#880e4f,stroke-width:2px;
+    classDef core fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px;
+    classDef infra fill:#fff3e0,stroke:#e65100,stroke-width:2px;
+
+    subgraph "External World"
+        Postman[("Postman / Client")]:::client
+    end
+
+    subgraph "API Gateway (cmd/api)"
+        HTTPS["HTTPS/TLS Termination<br/>(Port 3000)"]:::security
+    end
+
+    subgraph "Middleware Pipeline (Internal/api/middlewares)"
+        direction TB
+        MW_Rec[Recovery (Panic Catch)]:::security
+        MW_Rate[Rate Limiter (Token Bucket)]:::security
+        MW_HPP[HPP (Param Sanitize)]:::security
+        MW_Sec[Security Headers / CORS]:::security
+        MW_Obs[ResponseTime & Logger]:::security
+        MW_Comp[Compression (Gzip)]:::security
+        
+        MW_Rec --> MW_Rate --> MW_HPP --> MW_Sec --> MW_Obs --> MW_Comp
+    end
+
+    subgraph "Routing & Logic (Internal/api)"
+        Router{"Gorilla Mux<br/>(Router)"}:::core
+        
+        subgraph "Handler Layer"
+            H_Dev["Devices Handler"]:::core
+            H_Int["Interfaces Handler"]:::core
+        end
+
+        subgraph "Data Layer (Internal/models)"
+            M_Dev[("Device Model<br/>(Struct)")]:::core
+            M_Int[("Interface Model<br/>(Struct)")]:::core
+        end
+    end
+
+    subgraph "Simulated Network Infrastructure (Leaf-Spine Fabric)"
+        subgraph "Spine Layer (Super-Core)"
+            Spine1["Spine-1<br/>(SRL 7250)"]:::infra
+            Spine2["Spine-2<br/>(SRL 7250)"]:::infra
+        end
+
+        subgraph "Leaf Layer (ToR)"
+            Leaf1["Leaf-1<br/>(SRL 7220)"]:::infra
+            Leaf2["Leaf-2<br/>(SRL 7220)"]:::infra
+            Leaf3["Leaf-3<br/>(SRL 7220)"]:::infra
+        end
+        
+        %% Leaf-Spine Mesh Connections
+        Spine1 --- Leaf1 & Leaf2 & Leaf3
+        Spine2 --- Leaf1 & Leaf2 & Leaf3
+        
+        YANG_Store[("YANG Datastore")]:::infra
+    end
+
+    %% Flow Connections
+    Postman ==>|1. HTTPS Request| HTTPS
+    HTTPS ==>|2. Raw Stream| MW_Rec
+    MW_Comp ==>|3. Validated Request| Router
+
+    Router ==>|4. Route: /devices| H_Dev
+    Router ==>|4. Route: /interfaces| H_Int
+
+    H_Dev -.->|5. Map Data| M_Dev
+    H_Int -.->|5. Map Data| M_Int
+
+    H_Dev -.->|6. RESTCONF (Config)| Spine1
+    H_Dev -.->|6. RESTCONF (Config)| Leaf1
+    H_Int -.->|7. gNMI (Telemetry)| Spine2
+    H_Int -.->|7. gNMI (Telemetry)| Leaf2
+    H_Int -.->|7. gNMI (Telemetry)| YANG_Store
+
+    %% Return Path (Implicit)
+    H_Dev -.->|8. JSON Response| MW_Comp
+```
+
+**Flow Description:**
+1.  **Entry**: Client connects via HTTPS.
+2.  **Pipeline**: Request traverses the middleware stack (Security -> Observability -> Rate Limiting).
+3.  **Routing**: The multiplexer directs traffic to the correct handler (`/devices` vs `/interfaces`).
+4.  **Logic**: Handlers execute business logic, interacting with Data Models.
+5.  **Interaction**: The system uses a hybrid approach to manage a **Clos (Leaf-Spine) Fabric**:
+    *   **RESTCONF**: Pushes configuration to Spines and Leafs (e.g., BGP EVPN fabric setup).
+    *   **gNMI (gRPC)**: Streams telemetry from the entire fabric to monitor health.
+6.  **Response**: Data flows back up the stack, getting compressed and logged before reaching the client.

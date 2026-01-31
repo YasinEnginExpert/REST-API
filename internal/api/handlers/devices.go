@@ -11,8 +11,8 @@ func Devices(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		fmt.Println("Handling GET Request - Updating Device")
-		w.Write([]byte(`{"message": "Hello PUT Method on Devices Route"}`))
+		fmt.Println("Handling GET Request - Retrieving Devices")
+		w.Write([]byte(`{"message": "Hello GET Method on Devices Route"}`))
 	case http.MethodPost:
 		fmt.Println("Handling POST Request - Creating Device")
 		w.WriteHeader(http.StatusCreated)
