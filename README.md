@@ -176,10 +176,13 @@ This diagram provides an "Exploded View" of the entire system, illustrating the 
 ```mermaid
 graph TD
     %% Global Styles
-    classDef client fill:#e1f5fe,stroke:#01579b,stroke-width:2px;
-    classDef security fill:#fce4ec,stroke:#880e4f,stroke-width:2px;
-    classDef core fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px;
-    classDef infra fill:#fff3e0,stroke:#e65100,stroke-width:2px;
+    %% Global Styles - Enhanced Palette
+    classDef client fill:#bbdefb,stroke:#0d47a1,stroke-width:2px,color:#0d47a1;
+    classDef security fill:#f8bbd0,stroke:#880e4f,stroke-width:2px,color:#880e4f;
+    classDef core fill:#c8e6c9,stroke:#1b5e20,stroke-width:2px,color:#1b5e20;
+    classDef spine fill:#ffcc80,stroke:#e65100,stroke-width:2px,color:#e65100;
+    classDef leaf fill:#ffe0b2,stroke:#f57c00,stroke-width:2px,color:#f57c00;
+    classDef data fill:#b2dfdb,stroke:#004d40,stroke-width:2px,color:#004d40;
 
     subgraph "External World"
         Postman[("Postman / Client")]:::client
@@ -217,21 +220,21 @@ graph TD
 
     subgraph "Simulated Network Infrastructure (Leaf-Spine Fabric)"
         subgraph "Spine Layer (Super-Core)"
-            Spine1["Spine-1<br/>(SRL 7250)"]:::infra
-            Spine2["Spine-2<br/>(SRL 7250)"]:::infra
+            Spine1["Spine-1<br/>(SRL 7250)"]:::spine
+            Spine2["Spine-2<br/>(SRL 7250)"]:::spine
         end
 
         subgraph "Leaf Layer (ToR)"
-            Leaf1["Leaf-1<br/>(SRL 7220)"]:::infra
-            Leaf2["Leaf-2<br/>(SRL 7220)"]:::infra
-            Leaf3["Leaf-3<br/>(SRL 7220)"]:::infra
+            Leaf1["Leaf-1<br/>(SRL 7220)"]:::leaf
+            Leaf2["Leaf-2<br/>(SRL 7220)"]:::leaf
+            Leaf3["Leaf-3<br/>(SRL 7220)"]:::leaf
         end
         
         %% Leaf-Spine Mesh Connections
         Spine1 --- Leaf1 & Leaf2 & Leaf3
         Spine2 --- Leaf1 & Leaf2 & Leaf3
         
-        YANG_Store[("YANG Datastore")]:::infra
+        YANG_Store[("YANG Datastore")]:::data
     end
 
     %% Flow Connections
@@ -245,11 +248,11 @@ graph TD
     H_Dev -.->|5. Map Data| M_Dev
     H_Int -.->|5. Map Data| M_Int
 
-    H_Dev -.->|6. RESTCONF (Config)| Spine1
-    H_Dev -.->|6. RESTCONF (Config)| Leaf1
-    H_Int -.->|7. gNMI (Telemetry)| Spine2
-    H_Int -.->|7. gNMI (Telemetry)| Leaf2
-    H_Int -.->|7. gNMI (Telemetry)| YANG_Store
+    H_Dev -.->|6. RESTCONF - Config| Spine1
+    H_Dev -.->|6. RESTCONF - Config| Leaf1
+    H_Int -.->|7. gNMI - Telemetry| Spine2
+    H_Int -.->|7. gNMI - Telemetry| Leaf2
+    H_Int -.->|7. gNMI - Telemetry| YANG_Store
 
     %% Return Path (Implicit)
     H_Dev -.->|8. JSON Response| MW_Comp
