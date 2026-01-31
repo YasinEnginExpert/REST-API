@@ -13,7 +13,7 @@ import (
 func main() {
 
 	// Initialize routes
-	api.Routes()
+	router := api.Routes()
 
 	port := 3000
 
@@ -33,7 +33,7 @@ func main() {
 	// Create a customer Server
 	server := &http.Server{
 		Addr:      fmt.Sprintf(":%d", port),
-		Handler:   nil,
+		Handler:   router,
 		TLSConfig: tlsConfig,
 	}
 

@@ -1,31 +1,38 @@
 package handlers
 
 import (
-	"encoding/json"
+	"fmt"
 	"net/http"
-	"restapi/internal/models"
 )
 
-// GetInterfaces lists interfaces for a specific context (all for now)
-func GetInterfaces(w http.ResponseWriter, r *http.Request) {
-	// Mock data for demonstration
-	interfaces := []models.Interface{
-		{
-			ID:        "101",
-			DeviceID:  "1",
-			Name:      "GigabitEthernet0/0/0",
-			IPAddress: "192.168.1.1/24",
-			Status:    "up",
-		},
-		{
-			ID:        "102",
-			DeviceID:  "1",
-			Name:      "GigabitEthernet0/0/1",
-			IPAddress: "",
-			Status:    "down",
-		},
-	}
+// Interfaces handles all HTTP methods for the interfaces endpoint
+func Interfaces(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("Processing request for Interfaces Route. Method:", r.Method)
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(interfaces)
+	switch r.Method {
+	case http.MethodGet:
+		fmt.Println("Handling GET Request - Updating Device")
+		w.Write([]byte(`{"message": "Hello PUT Method on Devices Route"}`))
+
+	case http.MethodPost:
+		fmt.Println("Handling POST Request - Creating Interface")
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`{"message": "Hello POST Method on Interfaces Route"}`))
+
+	case http.MethodPut:
+		fmt.Println("Handling PUT Request - Updating Interface")
+		w.Write([]byte(`{"message": "Hello PUT Method on Interfaces Route"}`))
+
+	case http.MethodPatch:
+		fmt.Println("Handling PATCH Request - Patching Interface")
+		w.Write([]byte(`{"message": "Hello PATCH Method on Interfaces Route"}`))
+
+	case http.MethodDelete:
+		fmt.Println("Handling DELETE Request - Deleting Interface")
+		w.Write([]byte(`{"message": "Hello DELETE Method on Interfaces Route"}`))
+
+	default:
+		fmt.Println("Method not allowed")
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
 }

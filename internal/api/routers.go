@@ -1,15 +1,29 @@
 package api
 
 import (
-	"net/http"
 	"restapi/internal/api/handlers"
+	"restapi/internal/api/middlewares"
+
+	"github.com/gorilla/mux"
 )
 
-func Routes() {
+func Routes() *mux.Router {
+	router := mux.NewRouter()
+
+	// Global Middleware
+	router.Use(middlewares.Recovery) // Should be first to catch panics
+	router.Use(middlewares.Logger)   // Log requests
+	router.Use(middlewares.Cors)
+	router.Use(middlewares.SecurityHeaders)
+
+	// Root
+	router.HandleFunc("/", handlers.RootHandler).Methods("GET")
+
 	// Devices
-	http.HandleFunc("/devices", handlers.GetDevices)
-	http.HandleFunc("/devices/create", handlers.CreateDevice) // Simplified for standard http.ServeMux
+	router.HandleFunc("/devices", handlers.Devices).Methods("GET", "POST")
 
 	// Interfaces
-	http.HandleFunc("/interfaces", handlers.GetInterfaces)
+	router.HandleFunc("/interfaces", handlers.Interfaces).Methods("GET", "POST", "PUT", "PATCH", "DELETE")
+
+	return router
 }

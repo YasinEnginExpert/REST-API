@@ -1,0 +1,38 @@
+# Binaries
+/bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Development
+vendor/
+tmp/
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS Specific
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Certificates (Sensitive data)
+certs/*.key
+certs/*.pem
+certs/*.srl
+certs/*.csr
+certs/*.p12
+
+# Logs
+*.log
+
+# Demo Exclusions
+fileignore
+folderignore/
