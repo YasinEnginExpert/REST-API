@@ -1,4 +1,4 @@
-package api
+package router
 
 import (
 	"restapi/internal/api/handlers"
@@ -44,7 +44,13 @@ func Routes() *mux.Router {
 	router.HandleFunc("/", handlers.RootHandler).Methods("GET")
 
 	// Devices
-	router.HandleFunc("/devices", handlers.Devices).Methods("GET", "POST")
+	router.HandleFunc("/devices", handlers.GetDevices).Methods("GET")
+	router.HandleFunc("/devices", handlers.CreateDevice).Methods("POST")
+
+	router.HandleFunc("/devices/{id}", handlers.GetDevice).Methods("GET")
+	router.HandleFunc("/devices/{id}", handlers.UpdateDevice).Methods("PUT")
+	router.HandleFunc("/devices/{id}", handlers.PatchDevice).Methods("PATCH")
+	router.HandleFunc("/devices/{id}", handlers.DeleteDevice).Methods("DELETE")
 
 	// Interfaces
 	router.HandleFunc("/interfaces", handlers.Interfaces).Methods("GET", "POST", "PUT", "PATCH", "DELETE")

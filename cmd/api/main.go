@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"restapi/internal/api"
+	"restapi/internal/router"
 
 	"golang.org/x/net/http2"
 )
@@ -13,7 +13,7 @@ import (
 func main() {
 
 	// Initialize routes
-	router := api.Routes()
+	router := router.Routes()
 
 	port := 3000
 
