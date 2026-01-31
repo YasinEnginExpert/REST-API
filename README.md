@@ -86,53 +86,88 @@ This API employs a sophisticated chain of middlewares to ensure stability, secur
     # Server starts on https://localhost:3000
     ```
 
-### Postman / cURL Examples
+### Comprehensive Postman Guide (Beginner Friendly)
 
-#### 1. Get All Devices
-Retrieves the inventory of managed network devices.
+This section is designed for users who have never used Postman before. Follow these steps to fully test the API.
 
-**Request:**
-```http
-GET https://localhost:3000/devices
-Accept: application/json
-```
+#### Phase 1: Environment Setup
+1.  Open Postman.
+2.  Create a new **Collection** named `Network API`.
+3.  Click the "Eye" icon (Environment Quick Look) in the top right -> **Add**.
+4.  Name the Environment `Local Dev`.
+5.  Add a Variable:
+    *   **Variable**: `baseUrl`
+    *   **Initial Value**: `https://localhost:3000`
+    *   **Current Value**: `https://localhost:3000`
+6.  Click **Save** and select `Local Dev` from the dropdown.
 
-**Response:**
-```json
-{
-    "message": "Hello GET Method on Devices Route"
-}
-```
+#### Phase 2: Basic Operations
 
-#### 2. Test Rate Limiting
-Flood the server to trigger the protection mechanism.
+**1. Health Check (Root)**
+*   **Method**: `GET`
+*   **URL**: `{{baseUrl}}/`
+*   **Description**: Verifies the server is reachable.
+*   **Response**:
+    ```json
+    "Welcome to the Network Management API"
+    ```
 
-**Request:**
-```bash
-for i in {1..200}; do curl -k -I https://localhost:3000/devices; done
-```
+**2. Get All Devices**
+*   **Method**: `GET`
+*   **URL**: `{{baseUrl}}/devices`
+*   **Description**: Fetches the list of all managed SR Linux devices.
+*   **Response**:
+    ```json
+    {
+        "message": "Hello GET Method on Devices Route"
+    }
+    ```
 
-**Response (after limit):**
-```http
-HTTP/1.1 429 Too Many Requests
-Content-Type: text/plain; charset=utf-8
-```
+**3. Create a New Device**
+*   **Method**: `POST`
+*   **URL**: `{{baseUrl}}/devices`
+*   **Body** (Select `raw` -> `JSON`):
+    ```json
+    {
+        "hostname": "srl-spine-01",
+        "ip": "192.168.1.10",
+        "model": "7250 IXR"
+    }
+    ```
+*   **Response**:
+    ```json
+    {
+        "message": "Hello POST Method on Devices Route"
+    }
+    ```
 
-#### 3. Test Compression & Response Time
-Verify network optimizations.
+#### Phase 3: Middleware Testing (Advanced)
 
-**Request:**
-```bash
-curl -k -I -H "Accept-Encoding: gzip" https://localhost:3000/devices
-```
+**4. Test Compression (Gzip)**
+*   **Method**: `GET`
+*   **URL**: `{{baseUrl}}/devices`
+*   **Headers**:
+    *   Key: `Accept-Encoding`
+    *   Value: `gzip`
+*   **Verification**: Look at the **Headers** tab in the response. You should see `Content-Encoding: gzip`.
 
-**Response Headers:**
-```http
-HTTP/1.1 200 OK
-Content-Encoding: gzip
-X-Response-Time: 142.5µs
-Content-Type: application/json
-```
+**5. Test Rate Limiting (DOS Protection)**
+*   **Method**: `GET`
+*   **URL**: `{{baseUrl}}/devices`
+*   **Action**: Click "Send" repeatedly and quickly (more than 1 request per second).
+*   **Expected Result**: After a few clicks, you will get a **429 Too Many Requests** error.
+
+**6. Test HPP (Parameter Pollution)**
+*   **Method**: `GET`
+*   **URL**: `{{baseUrl}}/devices?id=123&id=456`
+*   **Description**: An attacker tries to confuse the server with two IDs.
+*   **Internal Behavior**: The `HPP Middleware` will strip the second ID. The server only sees `id=123`.
+
+**7. Test Response Time**
+*   **Method**: `GET`
+*   **URL**: `{{baseUrl}}/interfaces`
+*   **Verification**: Check response headers for `X-Response-Time`. It shows exactly how long (e.g., `126µs`) the server took to process your request.
+
 
 ## System Topology (Detailed Architecture)
 
@@ -156,12 +191,12 @@ graph TD
 
     subgraph "Middleware Pipeline (Internal/api/middlewares)"
         direction TB
-        MW_Rec[Recovery (Panic Catch)]:::security
-        MW_Rate[Rate Limiter (Token Bucket)]:::security
-        MW_HPP[HPP (Param Sanitize)]:::security
-        MW_Sec[Security Headers / CORS]:::security
-        MW_Obs[ResponseTime & Logger]:::security
-        MW_Comp[Compression (Gzip)]:::security
+        MW_Rec["Recovery (Panic Catch)"]:::security
+        MW_Rate["Rate Limiter (Token Bucket)"]:::security
+        MW_HPP["HPP (Param Sanitize)"]:::security
+        MW_Sec["Security Headers / CORS"]:::security
+        MW_Obs["ResponseTime & Logger"]:::security
+        MW_Comp["Compression (Gzip)"]:::security
         
         MW_Rec --> MW_Rate --> MW_HPP --> MW_Sec --> MW_Obs --> MW_Comp
     end
