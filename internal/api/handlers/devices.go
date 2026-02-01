@@ -1,56 +1,45 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"restapi/internal/models"
-	"strconv"
-	"sync"
+	"restapi/internal/utils"
+	"strings"
 
 	"github.com/gorilla/mux"
 )
-
-// In-Memory Storage
-var (
-	deviceStore []models.Device
-	mutex       sync.Mutex
-)
-
-// Initialize mock data on startup
-func init() {
-	deviceStore = []models.Device{
-		{ID: "1", Hostname: "srl-spine-01", IP: "192.168.1.10", Model: "7250 IXR", OS: "SR Linux"},
-		{ID: "2", Hostname: "srl-leaf-01", IP: "192.168.1.11", Model: "7220 IXR", OS: "SR Linux"},
-		{ID: "3", Hostname: "srl-leaf-02", IP: "192.168.1.12", Model: "7220 IXR", OS: "SR Linux"},
-		{ID: "4", Hostname: "cisco-core-01", IP: "10.0.0.1", Model: "Catalyst 9500", OS: "IOS-XE"},
-		{ID: "5", Hostname: "cisco-access-01", IP: "10.0.10.5", Model: "Catalyst 9300", OS: "IOS-XE"},
-		{ID: "6", Hostname: "juniper-edge-01", IP: "172.16.50.1", Model: "MX204", OS: "Junos OS"},
-		{ID: "7", Hostname: "arista-spine-01", IP: "192.168.20.1", Model: "DCS-7050", OS: "EOS"},
-		{ID: "8", Hostname: "nokia-ixr-01", IP: "10.20.30.40", Model: "7250 IXR", OS: "SR Linux"},
-	}
-}
 
 // GetDevices handles GET requests for listing devices with optional filtering
 func GetDevices(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	hostname := r.URL.Query().Get("hostname")
-	ip := r.URL.Query().Get("ip")
+	filters := make(map[string]string)
+	queryParams := r.URL.Query()
 
-	fmt.Println("Handling GET Request - Retrieving Device List")
-
-	mutex.Lock()
-	currentDevices := make([]models.Device, len(deviceStore))
-	copy(currentDevices, deviceStore)
-	mutex.Unlock()
-
-	// Filtering Logic
-	filteredDevices := make([]models.Device, 0)
-	for _, device := range currentDevices {
-		if (hostname == "" || device.Hostname == hostname) && (ip == "" || device.IP == ip) {
-			filteredDevices = append(filteredDevices, device)
+	for k, v := range queryParams {
+		if k == "sortby" {
+			continue
 		}
+		if len(v) > 0 && v[0] != "" {
+			filters[k] = v[0]
+		}
+	}
+
+	// 1. Build Query from Filters
+	query, args := FilterDevices(filters)
+
+	// 2. Add Sorting
+	sorts := r.URL.Query()["sortby"]
+	query = AddDeviceSorting(query, sorts)
+
+	// 3. Execute Query
+	devices, err := SelectDevices(query, args)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	response := struct {
@@ -59,13 +48,131 @@ func GetDevices(w http.ResponseWriter, r *http.Request) {
 		Data   []models.Device `json:"data"`
 	}{
 		Status: "success",
-		Count:  len(filteredDevices),
-		Data:   filteredDevices,
+		Count:  len(devices),
+		Data:   devices,
 	}
 
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	json.NewEncoder(w).Encode(response)
+}
+
+// FilterDevices builds the SQL query based on filters
+func FilterDevices(filters map[string]string) (string, []interface{}) {
+	query := "SELECT id, hostname, ip, model, vendor, os, serial_number, status, rack_position, location_id, created_at, updated_at FROM devices WHERE 1=1"
+	var args []interface{}
+	argId := 1
+
+	// Allowed filters mapping to DB columns
+	allowedParams := map[string]string{
+		"hostname":      "hostname",
+		"ip":            "ip",
+		"model":         "model",
+		"vendor":        "vendor",
+		"os":            "os",
+		"serial_number": "serial_number",
+		"status":        "status",
+		"rack_position": "rack_position",
+		"location_id":   "location_id",
+		"created_at":    "created_at",
+		"updated_at":    "updated_at",
 	}
+
+	for param, value := range filters {
+		if dbField, ok := allowedParams[param]; ok {
+			query += fmt.Sprintf(" AND %s = $%d", dbField, argId)
+			args = append(args, value)
+			argId++
+		}
+	}
+	return query, args
+}
+
+// AddDeviceSorting appends ORDER BY clauses to the query
+func AddDeviceSorting(query string, sorts []string) string {
+	if len(sorts) == 0 {
+		return query
+	}
+
+	allowedParams := map[string]bool{
+		"hostname":      true,
+		"ip":            true,
+		"model":         true,
+		"vendor":        true,
+		"os":            true,
+		"serial_number": true,
+		"status":        true,
+		"rack_position": true,
+		"location_id":   true,
+		"created_at":    true,
+		"updated_at":    true,
+	}
+
+	var orderClauses []string
+	for _, sortParam := range sorts {
+		parts := strings.Split(sortParam, ":")
+		if len(parts) != 2 {
+			continue
+		}
+		field, order := parts[0], parts[1]
+
+		if allowedParams[field] && isValidSortOrder(order) {
+			orderClauses = append(orderClauses, fmt.Sprintf("%s %s", field, order))
+		}
+	}
+
+	if len(orderClauses) > 0 {
+		query += " ORDER BY " + strings.Join(orderClauses, ", ")
+	}
+	return query
+}
+
+// SelectDevices executes the query and returns device list
+func SelectDevices(query string, args []interface{}) ([]models.Device, error) {
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var devices []models.Device
+	for rows.Next() {
+		var d models.Device
+		var serialNumber, rackPosition, locationID, createdAt, updatedAt sql.NullString
+
+		err := rows.Scan(&d.ID, &d.Hostname, &d.IP, &d.Model, &d.Vendor, &d.OS, &serialNumber, &d.Status, &rackPosition, &locationID, &createdAt, &updatedAt)
+		if err != nil {
+			return nil, err
+		}
+
+		d.SerialNumber = serialNumber.String
+		d.RackPosition = rackPosition.String
+		d.LocationID = locationID.String
+		d.CreatedAt = createdAt.String
+		d.UpdatedAt = updatedAt.String
+
+		devices = append(devices, d)
+	}
+	return devices, nil
+}
+
+func isValidSortOrder(order string) bool {
+	return order == "asc" || order == "desc"
+}
+
+func isValidSortField(field string) bool {
+	validFields := map[string]bool{
+		"hostname":      true,
+		"ip":            true,
+		"model":         true,
+		"vendor":        true,
+		"os":            true,
+		"serial_number": true,
+		"status":        true,
+		"rack_position": true,
+		"location_id":   true,
+		"created_at":    true,
+		"updated_at":    true,
+	}
+	return validFields[field]
 }
 
 // GetDevice handles GET requests for a single device by ID
@@ -75,87 +182,283 @@ func GetDevice(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
 
-	fmt.Println("Handling GET Request - Single Device ID:", id)
+	var d models.Device
+	var serialNumber, rackPosition, locationID, createdAt, updatedAt sql.NullString
 
-	mutex.Lock()
-	currentDevices := deviceStore
-	mutex.Unlock()
+	query := "SELECT id, hostname, ip, model, vendor, os, serial_number, status, rack_position, location_id, created_at, updated_at FROM devices WHERE id = $1"
+	err := db.QueryRow(query, id).Scan(&d.ID, &d.Hostname, &d.IP, &d.Model, &d.Vendor, &d.OS, &serialNumber, &d.Status, &rackPosition, &locationID, &createdAt, &updatedAt)
 
-	var foundDevice *models.Device
-	for _, d := range currentDevices {
-		if d.ID == id {
-			foundDevice = &d
-			break
+	sortParams := r.URL.Query()["sortby"]
+	if len(sortParams) > 0 {
+		query += "ORDERE BY"
+		for i, param := range sortParams {
+			parts := strings.Split(param, ":")
+			if len(parts) != 2 {
+				continue
+			}
+			field, order := parts[0], parts[1]
+			if !isValidSortField(field) || !isValidSortOrder(order) {
+				continue
+			}
+			if i > 0 {
+				query += ","
+			}
+			query += " " + field + " " + order
 		}
 	}
 
-	if foundDevice == nil {
+	if err == sql.ErrNoRows {
 		http.Error(w, "Device not found", http.StatusNotFound)
+		return
+	} else if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	if err := json.NewEncoder(w).Encode(foundDevice); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	d.SerialNumber = serialNumber.String
+	d.RackPosition = rackPosition.String
+	d.LocationID = locationID.String
+	d.CreatedAt = createdAt.String
+	d.UpdatedAt = updatedAt.String
+
+	json.NewEncoder(w).Encode(d)
 }
 
 // CreateDevice handles POST requests to add a new device
 func CreateDevice(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	fmt.Println("Handling POST Request - Adding Device")
 
-	var newDevice models.Device
-	if err := json.NewDecoder(r.Body).Decode(&newDevice); err != nil {
+	var d models.Device
+	if err := json.NewDecoder(r.Body).Decode(&d); err != nil {
 		http.Error(w, "Invalid Request Body", http.StatusBadRequest)
 		return
 	}
 
-	mutex.Lock()
-	defer mutex.Unlock()
+	// Insert into DB
+	query := `INSERT INTO devices (hostname, ip, model, vendor, os, serial_number, status, rack_position, location_id) 
+			  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`
 
-	// Simple ID generation
-	maxID := 0
-	for _, d := range deviceStore {
-		idInt, _ := strconv.Atoi(d.ID)
-		if idInt > maxID {
-			maxID = idInt
-		}
+	err := db.QueryRow(query, d.Hostname, d.IP, d.Model, d.Vendor, d.OS, d.SerialNumber, d.Status, d.RackPosition, d.LocationID).Scan(&d.ID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
-	newDevice.ID = strconv.Itoa(maxID + 1)
-
-	deviceStore = append(deviceStore, newDevice)
 
 	response := struct {
-		Status string          `json:"status"`
-		Count  int             `json:"count"`
-		Data   []models.Device `json:"data"`
+		Status string        `json:"status"`
+		Data   models.Device `json:"data"`
 	}{
 		Status: "success",
-		Count:  1,
-		Data:   []models.Device{newDevice},
+		Data:   d,
 	}
 
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(response)
 }
 
-// UpdateDevice handles PUT requests
+// UpdateDevice handles PUT requests (Full Update)
 func UpdateDevice(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	fmt.Println("Handling PUT Request - Updating Device")
-	w.Write([]byte(`{"message": "Hello PUT Method on Devices Route"}`))
-}
 
-// PatchDevice handles PATCH requests
-func PatchDevice(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	fmt.Println("Handling PATCH Request - Patching Device")
-	w.Write([]byte(`{"message": "Hello PATCH Method on Devices Route"}`))
+	vars := mux.Vars(r)
+	id := vars["id"]
+
+	var d models.Device
+	if err := json.NewDecoder(r.Body).Decode(&d); err != nil {
+		http.Error(w, "Invalid Request Body", http.StatusBadRequest)
+		return
+	}
+
+	query := `UPDATE devices SET hostname=$1, ip=$2, model=$3, vendor=$4, os=$5, serial_number=$6, status=$7, rack_position=$8, location_id=$9, updated_at=CURRENT_TIMESTAMP 
+			  WHERE id=$10`
+
+	res, err := db.Exec(query, d.Hostname, d.IP, d.Model, d.Vendor, d.OS, d.SerialNumber, d.Status, d.RackPosition, d.LocationID, id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	rowsAffected, _ := res.RowsAffected()
+	if rowsAffected == 0 {
+		http.Error(w, "Device not found", http.StatusNotFound)
+		return
+	}
+
+	d.ID = id
+	json.NewEncoder(w).Encode(d)
 }
 
 // DeleteDevice handles DELETE requests
 func DeleteDevice(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	fmt.Println("Handling DELETE Request - Deleting Device")
-	w.Write([]byte(`{"message": "Hello DELETE Method on Devices Route"}`))
+	vars := mux.Vars(r)
+	id := vars["id"]
+
+	query := "DELETE FROM devices WHERE id = $1"
+	res, err := db.Exec(query, id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	rowsAffected, _ := res.RowsAffected()
+	if rowsAffected == 0 {
+		http.Error(w, "Device not found", http.StatusNotFound)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// PatchDevice handles PATCH requests (Partial Update)
+func PatchDevice(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	vars := mux.Vars(r)
+	id := vars["id"]
+
+	var updates map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
+		http.Error(w, "Invalid Request Body", http.StatusBadRequest)
+		return
+	}
+
+	if len(updates) == 0 {
+		http.Error(w, "No fields to update", http.StatusBadRequest)
+		return
+	}
+
+	allowedFields := map[string]bool{
+		"hostname":      true,
+		"ip":            true,
+		"model":         true,
+		"vendor":        true,
+		"os":            true,
+		"serial_number": true,
+		"status":        true,
+		"rack_position": true,
+		"location_id":   true,
+	}
+
+	// Use generic builder
+	query, args, err := utils.BuildUpdateQuery("devices", updates, allowedFields, id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Inject updated_at=CURRENT_TIMESTAMP
+	// utils.BuildUpdateQuery returns "UPDATE table SET a=$1 WHERE id=$2"
+	// We simply adding the updated_at clause before the WHERE clause.
+	query = strings.Replace(query, " WHERE", ", updated_at=CURRENT_TIMESTAMP WHERE", 1)
+
+	res, err := db.Exec(query, args...)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	rowsAffected, _ := res.RowsAffected()
+	if rowsAffected == 0 {
+		http.Error(w, "Device not found", http.StatusNotFound)
+		return
+	}
+
+	// Fetch updated device to return
+	var d models.Device
+	var serialNumber, rackPosition, locationID, createdAt, updatedAt sql.NullString
+
+	fetchQuery := "SELECT id, hostname, ip, model, vendor, os, serial_number, status, rack_position, location_id, created_at, updated_at FROM devices WHERE id = $1"
+	err = db.QueryRow(fetchQuery, id).Scan(&d.ID, &d.Hostname, &d.IP, &d.Model, &d.Vendor, &d.OS, &serialNumber, &d.Status, &rackPosition, &locationID, &createdAt, &updatedAt)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	d.SerialNumber = serialNumber.String
+	d.RackPosition = rackPosition.String
+	d.LocationID = locationID.String
+	d.CreatedAt = createdAt.String
+	d.UpdatedAt = updatedAt.String
+
+	json.NewEncoder(w).Encode(d)
+}
+
+// BulkPatchDevices handles updating multiple devices at once
+func BulkPatchDevices(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	// 1. Parse Request Body
+	var updates []map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
+		http.Error(w, "Invalid Request Body", http.StatusBadRequest)
+		return
+	}
+
+	if len(updates) == 0 {
+		http.Error(w, "No updates provided", http.StatusBadRequest)
+		return
+	}
+
+	// 2. Start Transaction
+	tx, err := db.Begin()
+	if err != nil {
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+
+	// Defer Rollback in case of panic or error (if not committed)
+	defer func() {
+		if p := recover(); p != nil {
+			tx.Rollback()
+			panic(p)
+		} else if err != nil {
+			tx.Rollback()
+		}
+	}()
+
+	allowedFields := map[string]bool{
+		"hostname":      true,
+		"ip":            true,
+		"model":         true,
+		"vendor":        true,
+		"os":            true,
+		"serial_number": true,
+		"status":        true,
+		"rack_position": true,
+		"location_id":   true,
+	}
+
+	// 3. Loop through updates
+	for _, item := range updates {
+		id, ok := item["id"]
+		if !ok {
+			http.Error(w, "Missing ID in one of the update items", http.StatusBadRequest)
+			return // Triggers rollback via defer
+		}
+
+		// Use Builder
+		query, args, err := utils.BuildUpdateQuery("devices", item, allowedFields, id)
+		if err != nil {
+			// Skip if no valid fields provided for this item
+			continue
+		}
+
+		// Inject updated_at
+		query = strings.Replace(query, " WHERE", ", updated_at=CURRENT_TIMESTAMP WHERE", 1)
+
+		_, err = tx.Exec(query, args...)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Error updating device ID %v: %v", id, err), http.StatusInternalServerError)
+			return // Triggers rollback
+		}
+	}
+
+	// 4. Commit Transaction
+	err = tx.Commit()
+	if err != nil {
+		http.Error(w, "Error committing transaction", http.StatusInternalServerError)
+		return
+	}
+
+	w.Write([]byte(`{"status": "success", "message": "Bulk update completed successfully"}`))
 }

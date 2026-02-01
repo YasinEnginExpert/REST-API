@@ -5,6 +5,10 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"restapi/internal/api/handlers"
+	"restapi/internal/config"
+	"restapi/internal/repositories/sqlconnect"
 	"restapi/internal/router"
 
 	"golang.org/x/net/http2"
@@ -12,16 +16,72 @@ import (
 
 func main() {
 
+	// 1. Load Configuration
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("Failed to load configuration: %v", err)
+	}
+
+	// 2. Connect to default 'postgres' database to check/create target DB
+	// We use the default DSN generated from config
+	defaultDSN := cfg.Database.GetDefaultDSN()
+
+	tempDB, err := sqlconnect.Connect(defaultDSN)
+	if err != nil {
+		log.Fatal("Could not connect to postgres instance:", err)
+	}
+
+	// Check if database exists
+	var exists bool
+	checkQuery := fmt.Sprintf("SELECT EXISTS(SELECT datname FROM pg_catalog.pg_database WHERE datname = '%s')", cfg.Database.Name)
+	err = tempDB.QueryRow(checkQuery).Scan(&exists)
+	if err != nil {
+		log.Fatal("Failed to check database existence:", err)
+	}
+
+	if !exists {
+		log.Printf("Database '%s' does not exist. Creating...", cfg.Database.Name)
+		_, err = tempDB.Exec(fmt.Sprintf("CREATE DATABASE %s", cfg.Database.Name))
+		if err != nil {
+			log.Fatal("Failed to create database:", err)
+		}
+		log.Println("Database created successfully.")
+	} else {
+		log.Printf("Database '%s' already exists.", cfg.Database.Name)
+	}
+	tempDB.Close()
+
+	// 3. Connect to the actual target database
+	dsn := cfg.Database.GetDSN()
+	db, err := sqlconnect.Connect(dsn)
+	if err != nil {
+		log.Fatal("Cannot connect to target database:", err)
+	}
+	defer db.Close()
+
+	// Inject DB into handlers
+	handlers.SetDB(db)
+
+	// Auto-Run Migrations
+	fmt.Println("Checking database schema...")
+	migrationFile := "migrations/init.sql"
+	// Check if file exists roughly (optional, os.ReadFile handles it)
+	// Note: We use relative path assuming execution from project root
+	sqlScript, err := os.ReadFile(migrationFile)
+	if err != nil {
+		log.Printf("Warning: Could not read %s: %v. Database might not be initialized if not already setup.\n", migrationFile, err)
+	} else {
+		// Execute SQL script
+		_, err = db.Exec(string(sqlScript))
+		if err != nil {
+			log.Printf("Warning: Migration failed: %v. (This might be okay if tables exist)\n", err)
+		} else {
+			log.Println("Database schema updated successfully!")
+		}
+	}
+
 	// Initialize routes
 	router := router.Routes()
-
-	port := 3000
-
-	// Load the TLS cert and key
-	// NOTE: Paths are relative to where the binary is executed from.
-	// We assume it's run from the project root.
-	cert := "certs/cert.pem"
-	key := "certs/key.pem"
 
 	// Configure TLS
 	tlsConfig := &tls.Config{
@@ -32,7 +92,7 @@ func main() {
 
 	// Create a customer Server
 	server := &http.Server{
-		Addr:      fmt.Sprintf(":%d", port),
+		Addr:      fmt.Sprintf(":%d", cfg.Server.Port),
 		Handler:   router,
 		TLSConfig: tlsConfig,
 	}
@@ -40,9 +100,9 @@ func main() {
 	// Enable http2
 	http2.ConfigureServer(server, &http2.Server{})
 
-	fmt.Println("Server is running on port:", port)
+	fmt.Println("Server is running on port:", cfg.Server.Port)
 
-	err := server.ListenAndServeTLS(cert, key)
+	err = server.ListenAndServeTLS(cfg.Server.CertFile, cfg.Server.KeyFile)
 	if err != nil {
 		log.Fatalln("Could not start server", err)
 	}

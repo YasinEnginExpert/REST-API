@@ -46,6 +46,7 @@ func Routes() *mux.Router {
 	// Devices
 	router.HandleFunc("/devices", handlers.GetDevices).Methods("GET")
 	router.HandleFunc("/devices", handlers.CreateDevice).Methods("POST")
+	router.HandleFunc("/devices", handlers.BulkPatchDevices).Methods("PATCH")
 
 	router.HandleFunc("/devices/{id}", handlers.GetDevice).Methods("GET")
 	router.HandleFunc("/devices/{id}", handlers.UpdateDevice).Methods("PUT")
@@ -53,7 +54,30 @@ func Routes() *mux.Router {
 	router.HandleFunc("/devices/{id}", handlers.DeleteDevice).Methods("DELETE")
 
 	// Interfaces
-	router.HandleFunc("/interfaces", handlers.Interfaces).Methods("GET", "POST", "PUT", "PATCH", "DELETE")
+	router.HandleFunc("/interfaces", handlers.GetInterfaces).Methods("GET")
+	router.HandleFunc("/interfaces", handlers.CreateInterface).Methods("POST")
+	router.HandleFunc("/interfaces", handlers.BulkPatchInterfaces).Methods("PATCH")
+	router.HandleFunc("/interfaces/{id}", handlers.GetInterface).Methods("GET")
+	router.HandleFunc("/interfaces/{id}", handlers.UpdateInterface).Methods("PUT")
+	router.HandleFunc("/interfaces/{id}", handlers.PatchInterface).Methods("PATCH")
+	router.HandleFunc("/interfaces/{id}", handlers.DeleteInterface).Methods("DELETE")
+
+	// Locations
+	router.HandleFunc("/locations", handlers.GetLocations).Methods("GET")
+	router.HandleFunc("/locations", handlers.CreateLocation).Methods("POST")
+	router.HandleFunc("/locations", handlers.BulkPatchLocations).Methods("PATCH")
+	router.HandleFunc("/locations/{id}", handlers.GetLocation).Methods("GET")
+	router.HandleFunc("/locations/{id}", handlers.UpdateLocation).Methods("PUT")
+	router.HandleFunc("/locations/{id}", handlers.PatchLocation).Methods("PATCH")
+	router.HandleFunc("/locations/{id}", handlers.DeleteLocation).Methods("DELETE")
+
+	// VLANs
+	router.HandleFunc("/vlans", handlers.GetVLANs).Methods("GET")
+	router.HandleFunc("/vlans", handlers.CreateVLAN).Methods("POST")
+	router.HandleFunc("/vlans", handlers.BulkPatchVLANs).Methods("PATCH")
+	router.HandleFunc("/vlans/{id}", handlers.UpdateVLAN).Methods("PUT")
+	router.HandleFunc("/vlans/{id}", handlers.PatchVLAN).Methods("PATCH")
+	router.HandleFunc("/vlans/{id}", handlers.DeleteVLAN).Methods("DELETE")
 
 	return router
 }
