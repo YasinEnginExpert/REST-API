@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"restapi/internal/models"
 	"restapi/internal/utils"
+	pkgutils "restapi/pkg/utils"
 	"strings"
 
 	"github.com/gorilla/mux"
@@ -38,7 +39,7 @@ func GetInterfaces(w http.ResponseWriter, r *http.Request) {
 	// 3. Execute
 	interfaces, err := SelectInterfaces(query, args)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, pkgutils.ErrorHandler(err, "Failed to fetch interfaces").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -163,7 +164,7 @@ func GetInterface(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Interface not found", http.StatusNotFound)
 		return
 	} else if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, pkgutils.ErrorHandler(err, "Failed to fetch interface").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -185,12 +186,22 @@ func CreateInterface(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query := `INSERT INTO interfaces (device_id, name, ip_address, mac_address, speed, type, description, status) 
-			  VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`
-
-	err := db.QueryRow(query, i.DeviceID, i.Name, i.IPAddress, i.MACAddress, i.Speed, i.Type, i.Description, i.Status).Scan(&i.ID)
+	// Map data for insert
+	data, err := utils.GetStructValues(i)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, pkgutils.ErrorHandler(err, "Failed to parse interface data").Error(), http.StatusInternalServerError)
+		return
+	}
+
+	query, args, err := utils.GenerateInsertQuery("interfaces", data)
+	if err != nil {
+		http.Error(w, pkgutils.ErrorHandler(err, "Failed to generate insert query").Error(), http.StatusInternalServerError)
+		return
+	}
+
+	err = db.QueryRow(query, args...).Scan(&i.ID)
+	if err != nil {
+		http.Error(w, pkgutils.ErrorHandler(err, "Failed to create interface").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -215,7 +226,7 @@ func UpdateInterface(w http.ResponseWriter, r *http.Request) {
 
 	res, err := db.Exec(query, i.DeviceID, i.Name, i.IPAddress, i.MACAddress, i.Speed, i.Type, i.Description, i.Status, id)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, pkgutils.ErrorHandler(err, "Failed to update interface").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -235,7 +246,7 @@ func DeleteInterface(w http.ResponseWriter, r *http.Request) {
 
 	res, err := db.Exec("DELETE FROM interfaces WHERE id=$1", id)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, pkgutils.ErrorHandler(err, "Failed to delete interface").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -278,7 +289,7 @@ func PatchInterface(w http.ResponseWriter, r *http.Request) {
 
 	res, err := db.Exec(query, args...)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, pkgutils.ErrorHandler(err, "Failed to patch interface").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -295,7 +306,7 @@ func PatchInterface(w http.ResponseWriter, r *http.Request) {
 	fetchQuery := "SELECT id, device_id, name, ip_address, mac_address, speed, type, description, status FROM interfaces WHERE id=$1"
 	err = db.QueryRow(fetchQuery, id).Scan(&i.ID, &i.DeviceID, &i.Name, &ipAddress, &macAddress, &speed, &typeStr, &description, &i.Status)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, pkgutils.ErrorHandler(err, "Failed to fetch updated interface").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -325,7 +336,7 @@ func BulkPatchInterfaces(w http.ResponseWriter, r *http.Request) {
 
 	tx, err := db.Begin()
 	if err != nil {
-		http.Error(w, "Database error", http.StatusInternalServerError)
+		http.Error(w, pkgutils.ErrorHandler(err, "Failed to start database transaction").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -364,16 +375,71 @@ func BulkPatchInterfaces(w http.ResponseWriter, r *http.Request) {
 
 		_, err = tx.Exec(query, args...)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("Error updating interface ID %v: %v", id, err), http.StatusInternalServerError)
+			http.Error(w, pkgutils.ErrorHandler(err, fmt.Sprintf("Error updating interface ID %v", id)).Error(), http.StatusInternalServerError)
 			return
 		}
 	}
 
 	err = tx.Commit()
 	if err != nil {
-		http.Error(w, "Error committing transaction", http.StatusInternalServerError)
+		http.Error(w, pkgutils.ErrorHandler(err, "Failed to commit transaction").Error(), http.StatusInternalServerError)
 		return
 	}
 
 	w.Write([]byte(`{"status": "success", "message": "Bulk update completed successfully"}`))
+}
+
+// BulkDeleteInterfaces handles deleting multiple interfaces at once
+func BulkDeleteInterfaces(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	var ids []string
+	if err := json.NewDecoder(r.Body).Decode(&ids); err != nil {
+		http.Error(w, "Invalid Request Body", http.StatusBadRequest)
+		return
+	}
+
+	if len(ids) == 0 {
+		http.Error(w, "No IDs provided", http.StatusBadRequest)
+		return
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		http.Error(w, pkgutils.ErrorHandler(err, "Failed to start database transaction").Error(), http.StatusInternalServerError)
+		return
+	}
+
+	defer func() {
+		if p := recover(); p != nil {
+			tx.Rollback()
+			panic(p)
+		} else if err != nil {
+			tx.Rollback()
+		}
+	}()
+
+	query := "DELETE FROM interfaces WHERE id = $1"
+	for _, id := range ids {
+		res, err := tx.Exec(query, id)
+		if err != nil {
+			http.Error(w, pkgutils.ErrorHandler(err, fmt.Sprintf("Error deleting interface ID %v", id)).Error(), http.StatusInternalServerError)
+			return
+		}
+
+		rowsAffected, _ := res.RowsAffected()
+		if rowsAffected == 0 {
+			http.Error(w, fmt.Sprintf("Interface ID %v not found", id), http.StatusNotFound)
+			return
+		}
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		http.Error(w, pkgutils.ErrorHandler(err, "Failed to commit transaction").Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status": "success", "message": "Bulk delete completed successfully"}`))
 }

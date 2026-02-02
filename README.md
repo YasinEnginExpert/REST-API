@@ -261,6 +261,20 @@ Onboard a new device.
 }
 ```
 
+#### `PATCH /devices/{id}`
+Partially update a device (e.g., change status or IP).
+
+**Request:**
+```json
+{
+  "status": "maintenance",
+  "ip": "192.168.20.10"
+}
+```
+
+#### `DELETE /devices/{id}`
+Remove a device from inventory.
+
 ---
 
 ### Interfaces
@@ -286,6 +300,20 @@ Add an interface to a device.
 }
 ```
 
+#### `PATCH /interfaces/{id}`
+Update interface details.
+
+**Request:**
+```json
+{
+  "description": "Uplink to Core - REPLACED",
+  "status": "down"
+}
+```
+
+#### `DELETE /interfaces/{id}`
+Remove an interface.
+
 ---
 
 ### Locations
@@ -305,6 +333,20 @@ Define a new site.
 }
 ```
 
+#### `PATCH /locations/{id}`
+Update location information.
+
+**Request:**
+```json
+{
+  "address": "New Address No:5",
+  "name": "Istanbul DC - Hall 2"
+}
+```
+
+#### `DELETE /locations/{id}`
+Delete a location.
+
 ---
 
 ### VLANs
@@ -322,6 +364,20 @@ Define a VLAN globally.
   "description": "Voice over IP Network for Staff"
 }
 ```
+
+#### `PATCH /vlans/{id}`
+Update VLAN details.
+
+**Request:**
+```json
+{
+  "name": "Users_Voice_V2",
+  "description": "Updated Voice Vlan"
+}
+```
+
+#### `DELETE /vlans/{id}`
+Delete a VLAN.
 
 ---
 

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"restapi/internal/models"
 	"restapi/internal/utils"
+	pkgutils "restapi/pkg/utils"
 	"strings"
 
 	"github.com/gorilla/mux"
@@ -38,7 +39,7 @@ func GetDevices(w http.ResponseWriter, r *http.Request) {
 	// 3. Execute Query
 	devices, err := SelectDevices(query, args)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, pkgutils.ErrorHandler(err, "Failed to fetch devices").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -211,7 +212,7 @@ func GetDevice(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Device not found", http.StatusNotFound)
 		return
 	} else if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, pkgutils.ErrorHandler(err, "Failed to fetch device").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -235,12 +236,22 @@ func CreateDevice(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Insert into DB
-	query := `INSERT INTO devices (hostname, ip, model, vendor, os, serial_number, status, rack_position, location_id) 
-			  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`
-
-	err := db.QueryRow(query, d.Hostname, d.IP, d.Model, d.Vendor, d.OS, d.SerialNumber, d.Status, d.RackPosition, d.LocationID).Scan(&d.ID)
+	// Insert into DB
+	data, err := utils.GetStructValues(d)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, pkgutils.ErrorHandler(err, "Failed to parse device data").Error(), http.StatusInternalServerError)
+		return
+	}
+
+	query, args, err := utils.GenerateInsertQuery("devices", data)
+	if err != nil {
+		http.Error(w, pkgutils.ErrorHandler(err, "Failed to generate insert query").Error(), http.StatusInternalServerError)
+		return
+	}
+
+	err = db.QueryRow(query, args...).Scan(&d.ID)
+	if err != nil {
+		http.Error(w, pkgutils.ErrorHandler(err, "Failed to create device").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -274,7 +285,7 @@ func UpdateDevice(w http.ResponseWriter, r *http.Request) {
 
 	res, err := db.Exec(query, d.Hostname, d.IP, d.Model, d.Vendor, d.OS, d.SerialNumber, d.Status, d.RackPosition, d.LocationID, id)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, pkgutils.ErrorHandler(err, "Failed to update device").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -297,7 +308,7 @@ func DeleteDevice(w http.ResponseWriter, r *http.Request) {
 	query := "DELETE FROM devices WHERE id = $1"
 	res, err := db.Exec(query, id)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, pkgutils.ErrorHandler(err, "Failed to delete device").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -353,7 +364,7 @@ func PatchDevice(w http.ResponseWriter, r *http.Request) {
 
 	res, err := db.Exec(query, args...)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, pkgutils.ErrorHandler(err, "Failed to patch device").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -370,7 +381,7 @@ func PatchDevice(w http.ResponseWriter, r *http.Request) {
 	fetchQuery := "SELECT id, hostname, ip, model, vendor, os, serial_number, status, rack_position, location_id, created_at, updated_at FROM devices WHERE id = $1"
 	err = db.QueryRow(fetchQuery, id).Scan(&d.ID, &d.Hostname, &d.IP, &d.Model, &d.Vendor, &d.OS, &serialNumber, &d.Status, &rackPosition, &locationID, &createdAt, &updatedAt)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, pkgutils.ErrorHandler(err, "Failed to fetch updated device").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -402,7 +413,7 @@ func BulkPatchDevices(w http.ResponseWriter, r *http.Request) {
 	// 2. Start Transaction
 	tx, err := db.Begin()
 	if err != nil {
-		http.Error(w, "Database error", http.StatusInternalServerError)
+		http.Error(w, pkgutils.ErrorHandler(err, "Failed to start database transaction").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -448,7 +459,7 @@ func BulkPatchDevices(w http.ResponseWriter, r *http.Request) {
 
 		_, err = tx.Exec(query, args...)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("Error updating device ID %v: %v", id, err), http.StatusInternalServerError)
+			http.Error(w, pkgutils.ErrorHandler(err, fmt.Sprintf("Error updating device ID %v", id)).Error(), http.StatusInternalServerError)
 			return // Triggers rollback
 		}
 	}
@@ -456,9 +467,71 @@ func BulkPatchDevices(w http.ResponseWriter, r *http.Request) {
 	// 4. Commit Transaction
 	err = tx.Commit()
 	if err != nil {
-		http.Error(w, "Error committing transaction", http.StatusInternalServerError)
+		http.Error(w, pkgutils.ErrorHandler(err, "Failed to commit transaction").Error(), http.StatusInternalServerError)
 		return
 	}
 
 	w.Write([]byte(`{"status": "success", "message": "Bulk update completed successfully"}`))
+}
+
+// BulkDeleteDevices handles deleting multiple devices at once
+func BulkDeleteDevices(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	// 1. Parse Request Body (Expects a list of IDs)
+	var ids []string
+	if err := json.NewDecoder(r.Body).Decode(&ids); err != nil {
+		http.Error(w, "Invalid Request Body", http.StatusBadRequest)
+		return
+	}
+
+	if len(ids) == 0 {
+		http.Error(w, "No IDs provided", http.StatusBadRequest)
+		return
+	}
+
+	// 2. Start Transaction
+	tx, err := db.Begin()
+	if err != nil {
+		http.Error(w, pkgutils.ErrorHandler(err, "Failed to start database transaction").Error(), http.StatusInternalServerError)
+		return
+	}
+
+	defer func() {
+		if p := recover(); p != nil {
+			tx.Rollback()
+			panic(p)
+		} else if err != nil {
+			tx.Rollback()
+		}
+	}()
+
+	// 3. Loop through IDs and Delete
+	query := "DELETE FROM devices WHERE id = $1"
+	for _, id := range ids {
+		res, err := tx.Exec(query, id)
+		if err != nil {
+			http.Error(w, pkgutils.ErrorHandler(err, fmt.Sprintf("Error deleting device ID %v", id)).Error(), http.StatusInternalServerError)
+			return // Triggers rollback
+		}
+
+		rowsAffected, _ := res.RowsAffected()
+		if rowsAffected == 0 {
+			// Option: Fail entire batch if one is missing, OR accept it.
+			// For strict middleware/API consistency, often it's better to fail or warn.
+			// Here we will choose to fail to ensure data consistency as requested by "like BulkPatch".
+			http.Error(w, fmt.Sprintf("Device ID %v not found", id), http.StatusNotFound)
+			return // Triggers rollback
+		}
+	}
+
+	// 4. Commit Transaction
+	err = tx.Commit()
+	if err != nil {
+		http.Error(w, pkgutils.ErrorHandler(err, "Failed to commit transaction").Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status": "success", "message": "Bulk delete completed successfully"}`))
 }
