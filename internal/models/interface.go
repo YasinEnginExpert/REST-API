@@ -1,5 +1,12 @@
 package models
 
+import (
+	"errors"
+	"net"
+	"regexp"
+	"strings"
+)
+
 type Interface struct {
 	ID          string `json:"id" db:"id"`
 	DeviceID    string `json:"device_id" db:"device_id"`
@@ -10,4 +17,42 @@ type Interface struct {
 	Type        string `json:"type,omitempty" db:"type"`
 	Description string `json:"description,omitempty" db:"description"`
 	Status      string `json:"status" db:"status"` // e.g., "up", "down"
+}
+
+// Validate checks for required fields and logical constraints
+func (i *Interface) Validate() error {
+	if strings.TrimSpace(i.Name) == "" {
+		return errors.New("name is required")
+	}
+	if strings.TrimSpace(i.DeviceID) == "" {
+		return errors.New("device_id is required")
+	}
+	if strings.TrimSpace(i.Type) == "" {
+		return errors.New("type is required")
+	}
+	// Check MAC Address format if provided
+	if i.MACAddress != "" {
+		// Simple regex for MAC address (accepts : or - as separator)
+		macRegex := regexp.MustCompile(`^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$`)
+		if !macRegex.MatchString(i.MACAddress) {
+			return errors.New("invalid mac_address format")
+		}
+	}
+	// Check IP Address if provided
+	if i.IPAddress != "" {
+		if ip := net.ParseIP(i.IPAddress); ip == nil {
+			return errors.New("invalid ip_address format")
+		}
+	}
+
+	validStatuses := map[string]bool{
+		"up":                    true,
+		"down":                  true,
+		"administratively down": true,
+	}
+	if i.Status != "" && !validStatuses[strings.ToLower(i.Status)] {
+		return errors.New("invalid status value")
+	}
+
+	return nil
 }

@@ -39,7 +39,7 @@ func GetVLANs(w http.ResponseWriter, r *http.Request) {
 	// 3. Execute
 	vlans, err := SelectVLANs(query, args)
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to fetch VLANs").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to fetch VLANs").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -134,27 +134,36 @@ func SelectVLANs(query string, args []interface{}) ([]models.VLAN, error) {
 func CreateVLAN(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	var v models.VLAN
-	if err := json.NewDecoder(r.Body).Decode(&v); err != nil {
-		http.Error(w, "Invalid Body", http.StatusBadRequest)
+	// Strict JSON decoding
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&v); err != nil {
+		pkgutils.JSONError(w, "Invalid Request Body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Validate VLAN data
+	if err := v.Validate(); err != nil {
+		pkgutils.JSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	data, err := utils.GetStructValues(v)
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to parse VLAN data").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to parse VLAN data").Error(), http.StatusInternalServerError)
 		return
 	}
 
 	query, args, err := utils.GenerateInsertQuery("vlans", data)
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to generate insert query").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to generate insert query").Error(), http.StatusInternalServerError)
 		return
 	}
 
 	err = db.QueryRow(query, args...).Scan(&v.ID)
 
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to create VLAN").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to create VLAN").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -169,21 +178,30 @@ func UpdateVLAN(w http.ResponseWriter, r *http.Request) {
 	id := vars["id"]
 
 	var v models.VLAN
-	if err := json.NewDecoder(r.Body).Decode(&v); err != nil {
-		http.Error(w, "Invalid Body", http.StatusBadRequest)
+	// Strict JSON decoding
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&v); err != nil {
+		pkgutils.JSONError(w, "Invalid Request Body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Validate VLAN data
+	if err := v.Validate(); err != nil {
+		pkgutils.JSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	query := "UPDATE vlans SET vlan_id=$1, name=$2, description=$3 WHERE id=$4"
 	res, err := db.Exec(query, v.VlanID, v.Name, v.Description, id)
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to update VLAN").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to update VLAN").Error(), http.StatusInternalServerError)
 		return
 	}
 
 	rows, _ := res.RowsAffected()
 	if rows == 0 {
-		http.Error(w, "VLAN not found", http.StatusNotFound)
+		pkgutils.JSONError(w, "VLAN not found", http.StatusNotFound)
 		return
 	}
 	v.ID = id
@@ -197,13 +215,13 @@ func DeleteVLAN(w http.ResponseWriter, r *http.Request) {
 
 	res, err := db.Exec("DELETE FROM vlans WHERE id=$1", id)
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to delete VLAN").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to delete VLAN").Error(), http.StatusInternalServerError)
 		return
 	}
 
 	rows, _ := res.RowsAffected()
 	if rows == 0 {
-		http.Error(w, "VLAN not found", http.StatusNotFound)
+		pkgutils.JSONError(w, "VLAN not found", http.StatusNotFound)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -217,12 +235,12 @@ func PatchVLAN(w http.ResponseWriter, r *http.Request) {
 
 	var updates map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
-		http.Error(w, "Invalid Request Body", http.StatusBadRequest)
+		pkgutils.JSONError(w, "Invalid Request Body", http.StatusBadRequest)
 		return
 	}
 
 	if len(updates) == 0 {
-		http.Error(w, "No fields to update", http.StatusBadRequest)
+		pkgutils.JSONError(w, "No fields to update", http.StatusBadRequest)
 		return
 	}
 
@@ -232,21 +250,41 @@ func PatchVLAN(w http.ResponseWriter, r *http.Request) {
 		"description": true,
 	}
 
+	// VALIDATION
+	if val, ok := updates["name"]; ok && strings.TrimSpace(fmt.Sprintf("%v", val)) == "" {
+		pkgutils.JSONError(w, "name cannot be empty", http.StatusBadRequest)
+		return
+	}
+	if val, ok := updates["vlan_id"]; ok {
+		// Use fmt.Sprintf to handle float64 (JSON default number) or int safely
+		vlanIDStr := fmt.Sprintf("%v", val)
+		var vlanID int
+		if _, err := fmt.Sscanf(vlanIDStr, "%d", &vlanID); err != nil {
+			pkgutils.JSONError(w, "invalid vlan_id format", http.StatusBadRequest)
+			return
+		}
+
+		if vlanID < 1 || vlanID > 4094 {
+			pkgutils.JSONError(w, "vlan_id must be between 1 and 4094", http.StatusBadRequest)
+			return
+		}
+	}
+
 	query, args, err := utils.BuildUpdateQuery("vlans", updates, allowedFields, id)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		pkgutils.JSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	res, err := db.Exec(query, args...)
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to patch VLAN").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to patch VLAN").Error(), http.StatusInternalServerError)
 		return
 	}
 
 	rowsAffected, _ := res.RowsAffected()
 	if rowsAffected == 0 {
-		http.Error(w, "VLAN not found", http.StatusNotFound)
+		pkgutils.JSONError(w, "VLAN not found", http.StatusNotFound)
 		return
 	}
 
@@ -256,7 +294,7 @@ func PatchVLAN(w http.ResponseWriter, r *http.Request) {
 	fetchQuery := "SELECT id, vlan_id, name, description FROM vlans WHERE id=$1"
 	err = db.QueryRow(fetchQuery, id).Scan(&v.ID, &v.VlanID, &v.Name, &description)
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to fetch updated VLAN").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to fetch updated VLAN").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -270,18 +308,18 @@ func BulkPatchVLANs(w http.ResponseWriter, r *http.Request) {
 
 	var updates []map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
-		http.Error(w, "Invalid Request Body", http.StatusBadRequest)
+		pkgutils.JSONError(w, "Invalid Request Body", http.StatusBadRequest)
 		return
 	}
 
 	if len(updates) == 0 {
-		http.Error(w, "No updates provided", http.StatusBadRequest)
+		pkgutils.JSONError(w, "No updates provided", http.StatusBadRequest)
 		return
 	}
 
 	tx, err := db.Begin()
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to start database transaction").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to start database transaction").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -303,8 +341,26 @@ func BulkPatchVLANs(w http.ResponseWriter, r *http.Request) {
 	for _, item := range updates {
 		id, ok := item["id"]
 		if !ok {
-			http.Error(w, "Missing ID in one of the update items", http.StatusBadRequest)
+			pkgutils.JSONError(w, "Missing ID in one of the update items", http.StatusBadRequest)
 			return
+		}
+
+		// VALIDATION
+		if val, ok := item["name"]; ok && strings.TrimSpace(fmt.Sprintf("%v", val)) == "" {
+			pkgutils.JSONError(w, fmt.Sprintf("name cannot be empty for vlan %v", id), http.StatusBadRequest)
+			return
+		}
+		if val, ok := item["vlan_id"]; ok {
+			vlanIDStr := fmt.Sprintf("%v", val)
+			var vlanID int
+			if _, err := fmt.Sscanf(vlanIDStr, "%d", &vlanID); err != nil {
+				pkgutils.JSONError(w, fmt.Sprintf("invalid vlan_id format for vlan %v", id), http.StatusBadRequest)
+				return
+			}
+			if vlanID < 1 || vlanID > 4094 {
+				pkgutils.JSONError(w, fmt.Sprintf("vlan_id must be between 1 and 4094 for vlan %v", id), http.StatusBadRequest)
+				return
+			}
 		}
 
 		query, args, err := utils.BuildUpdateQuery("vlans", item, allowedFields, id)
@@ -314,14 +370,14 @@ func BulkPatchVLANs(w http.ResponseWriter, r *http.Request) {
 
 		_, err = tx.Exec(query, args...)
 		if err != nil {
-			http.Error(w, pkgutils.ErrorHandler(err, fmt.Sprintf("Error updating VLAN ID %v", id)).Error(), http.StatusInternalServerError)
+			pkgutils.JSONError(w, pkgutils.ErrorHandler(err, fmt.Sprintf("Error updating VLAN ID %v", id)).Error(), http.StatusInternalServerError)
 			return
 		}
 	}
 
 	err = tx.Commit()
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to commit transaction").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to commit transaction").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -334,18 +390,18 @@ func BulkDeleteVLANs(w http.ResponseWriter, r *http.Request) {
 
 	var ids []string
 	if err := json.NewDecoder(r.Body).Decode(&ids); err != nil {
-		http.Error(w, "Invalid Request Body", http.StatusBadRequest)
+		pkgutils.JSONError(w, "Invalid Request Body", http.StatusBadRequest)
 		return
 	}
 
 	if len(ids) == 0 {
-		http.Error(w, "No IDs provided", http.StatusBadRequest)
+		pkgutils.JSONError(w, "No IDs provided", http.StatusBadRequest)
 		return
 	}
 
 	tx, err := db.Begin()
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to start database transaction").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to start database transaction").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -362,20 +418,20 @@ func BulkDeleteVLANs(w http.ResponseWriter, r *http.Request) {
 	for _, id := range ids {
 		res, err := tx.Exec(query, id)
 		if err != nil {
-			http.Error(w, pkgutils.ErrorHandler(err, fmt.Sprintf("Error deleting VLAN ID %v", id)).Error(), http.StatusInternalServerError)
+			pkgutils.JSONError(w, pkgutils.ErrorHandler(err, fmt.Sprintf("Error deleting VLAN ID %v", id)).Error(), http.StatusInternalServerError)
 			return
 		}
 
 		rowsAffected, _ := res.RowsAffected()
 		if rowsAffected == 0 {
-			http.Error(w, fmt.Sprintf("VLAN ID %v not found", id), http.StatusNotFound)
+			pkgutils.JSONError(w, fmt.Sprintf("VLAN ID %v not found", id), http.StatusNotFound)
 			return
 		}
 	}
 
 	err = tx.Commit()
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to commit transaction").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to commit transaction").Error(), http.StatusInternalServerError)
 		return
 	}
 

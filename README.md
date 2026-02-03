@@ -381,39 +381,305 @@ Delete a VLAN.
 
 ---
 
-## Advanced Usage
+## Comprehensive API Usage Examples (Global Topology)
 
-### Bulk Patch Updates
+Our database is now populated with a Global Multi-Industry Topology including AI Clusters, Space Stations, and 5G Hubs. Use the examples below to test the full capabilities of the API.
 
-Update thousands of resources in a single atomic transaction. One failure executes a **Rollback** for data consistency.
+### 1. Geographic & Location Queries
 
-**Endpoint:** `PATCH /devices` (or `/interfaces`, `/locations`, `/vlans`)
+**List All High-Tech Locations**
 
-**Request (Update Multiple Devices Status):**
-```json
-[
-  {
-    "id": "550e8400-e29b-41d4-a716-446655440000",
-    "status": "maintenance"
-  },
-  {
-    "id": "770e8400-e29b-41d4-a716-446655440022",
-    "status": "maintenance",
-    "notes": "Scheduled Upgrade"
-  }
-]
+*cURL:*
+```bash
+curl -X GET http://localhost:8080/locations
 ```
 
-### Filtering & Sorting
+*HTTP (Postman):*
+```http
+GET /locations HTTP/1.1
+Host: localhost:8080
+```
 
-Combine powerful filters with sorting to find exactly what you need.
+**Find the "Deep Space Comms" Station in Austin**
 
+*cURL:*
 ```bash
-# Find all active Cisco devices in Istanbul, sorted by hostname
-GET /devices?vendor=Cisco&status=online&city=Istanbul&sortby=hostname:asc
+curl -X GET "http://localhost:8080/locations/loc-us-aus-01"
+```
 
-# Find all 10G interfaces that are currently down
-GET /interfaces?speed=10000&status=down
+*HTTP (Postman):*
+```http
+GET /locations/loc-us-aus-01 HTTP/1.1
+Host: localhost:8080
+```
+
+**Get all Devices in the Berlin Gigafactory**
+
+*cURL:*
+```bash
+curl -X GET "http://localhost:8080/locations/loc-de-ber-01/devices"
+```
+
+*HTTP (Postman):*
+```http
+GET /locations/loc-de-ber-01/devices HTTP/1.1
+Host: localhost:8080
+```
+
+---
+
+### 2. Device Filtering (Vendor & Type)
+
+**Find all NVIDIA AI Supercomputers**
+
+*cURL:*
+```bash
+curl -X GET "http://localhost:8080/devices?vendor=NVIDIA"
+```
+
+*HTTP (Postman):*
+```http
+GET /devices?vendor=NVIDIA HTTP/1.1
+Host: localhost:8080
+```
+
+**List all Space/Satellite Gateways (Cobham)**
+
+*cURL:*
+```bash
+curl -X GET "http://localhost:8080/devices?vendor=Cobham"
+```
+
+*HTTP (Postman):*
+```http
+GET /devices?vendor=Cobham HTTP/1.1
+Host: localhost:8080
+```
+
+**Show all Cisco devices involved in Industrial IoT (IE-5000)**
+
+*cURL:*
+```bash
+curl -X GET "http://localhost:8080/devices?model=IE-5000"
+```
+
+*HTTP (Postman):*
+```http
+GET /devices?model=IE-5000 HTTP/1.1
+Host: localhost:8080
+```
+
+**Find High-Frequency Trading (HFT) FPGA Switches**
+
+*cURL:*
+```bash
+curl -X GET "http://localhost:8080/devices?model=7130%20Connect"
+```
+
+*HTTP (Postman):*
+```http
+GET /devices?model=7130 Connect HTTP/1.1
+Host: localhost:8080
+```
+
+---
+
+### 3. Advanced Interface Queries (Physical Layer)
+
+**List 200Gbps Infiniband Interfaces (AI Cluster)**
+
+*cURL:*
+```bash
+curl -X GET "http://localhost:8080/interfaces?type=infiniband"
+```
+
+*HTTP (Postman):*
+```http
+GET /interfaces?type=infiniband HTTP/1.1
+Host: localhost:8080
+```
+
+**Show Microwave Limits (HFT Trading)**
+
+*cURL:*
+```bash
+curl -X GET "http://localhost:8080/interfaces?type=microwave"
+```
+
+*HTTP (Postman):*
+```http
+GET /interfaces?type=microwave HTTP/1.1
+Host: localhost:8080
+```
+
+**Find Subsea Optical Wavelengths (100Gbps)**
+
+*cURL:*
+```bash
+curl -X GET "http://localhost:8080/interfaces?type=optical&speed=100Gbps"
+```
+
+*HTTP (Postman):*
+```http
+GET /interfaces?type=optical&speed=100Gbps HTTP/1.1
+Host: localhost:8080
+```
+
+**List all LoRaWAN Sensors (Smart City)**
+
+*cURL:*
+```bash
+curl -X GET "http://localhost:8080/interfaces?type=lora"
+```
+
+*HTTP (Postman):*
+```http
+GET /interfaces?type=lora HTTP/1.1
+Host: localhost:8080
+```
+
+---
+
+### 4. VLAN & Network Segmentation
+
+**List All VLANs**
+
+*cURL:*
+```bash
+curl -X GET "http://localhost:8080/vlans"
+```
+
+*HTTP (Postman):*
+```http
+GET /vlans HTTP/1.1
+Host: localhost:8080
+```
+
+**Inspect the "Space Telemetry" VLAN**
+
+*cURL:*
+```bash
+curl -X GET "http://localhost:8080/vlans/vlan-601"
+```
+
+*HTTP (Postman):*
+```http
+GET /vlans/vlan-601 HTTP/1.1
+Host: localhost:8080
+```
+
+---
+
+### 5. Operational Tests (Error Handling & Validation)
+
+**Test Validation Error (Invalid IP Format)**
+
+*cURL:*
+```bash
+curl -X POST http://localhost:8080/devices \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "test-dev-01",
+    "hostname": "test-router",
+    "ip": "999.999.999", 
+    "model": "Test",
+    "vendor": "Test",
+    "os": "TestForError",
+    "status": "active"
+  }'
+```
+
+*HTTP (Postman):*
+```http
+POST /devices HTTP/1.1
+Host: localhost:8080
+Content-Type: application/json
+
+{
+    "id": "test-dev-01",
+    "hostname": "test-router",
+    "ip": "999.999.999", 
+    "model": "Test",
+    "vendor": "Test",
+    "os": "TestForError",
+    "status": "active"
+}
+```
+
+**Test Non-Existent Resource (404 Not Found)**
+
+*cURL:*
+```bash
+curl -X GET "http://localhost:8080/devices/dev-mars-colony-01"
+```
+
+*HTTP (Postman):*
+```http
+GET /devices/dev-mars-colony-01 HTTP/1.1
+Host: localhost:8080
+```
+
+---
+
+---
+
+### 6. Sub-routes & Relationships
+
+Traverse the relationship between resources directly.
+
+**Get all Interfaces of the "Global Tech HQ" Core Router**
+
+*cURL:*
+```bash
+curl -X GET "http://localhost:8080/devices/dev-sf-core-01/interfaces"
+```
+
+*HTTP (Postman):*
+```http
+GET /devices/dev-sf-core-01/interfaces HTTP/1.1
+Host: localhost:8080
+```
+
+**Get all Devices in the "Smart City Control" Location**
+
+*cURL:*
+```bash
+curl -X GET "http://localhost:8080/locations/loc-ae-dxb-01/devices"
+```
+
+*HTTP (Postman):*
+```http
+GET /locations/loc-ae-dxb-01/devices HTTP/1.1
+Host: localhost:8080
+```
+
+---
+
+### 7. Advanced Validation Tests
+
+**Test Bulk Update with Invalid Data (Atomic Rollback)**
+*Attempts to update two devices, but one has an invalid status. The entire operation should fail.*
+
+*cURL:*
+```bash
+curl -X PATCH http://localhost:8080/devices \
+  -H "Content-Type: application/json" \
+  -d '[
+    {"id": "dev-sf-core-01", "status": "maintenance"},
+    {"id": "dev-sf-fw-01", "status": "INVALID_STATUS_value"}
+  ]'
+```
+
+*HTTP (Postman):*
+```http
+PATCH /devices HTTP/1.1
+Host: localhost:8080
+Content-Type: application/json
+
+[
+    {"id": "dev-sf-core-01", "status": "maintenance"},
+    {"id": "dev-sf-fw-01", "status": "INVALID_STATUS_value"}
+]
 ```
 
 ---

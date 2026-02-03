@@ -39,7 +39,7 @@ func GetLocations(w http.ResponseWriter, r *http.Request) {
 	// 3. Execute Query
 	locations, err := SelectLocations(query, args)
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to fetch locations").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to fetch locations").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -138,27 +138,36 @@ func SelectLocations(query string, args []interface{}) ([]models.Location, error
 func CreateLocation(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	var l models.Location
-	if err := json.NewDecoder(r.Body).Decode(&l); err != nil {
-		http.Error(w, "Invalid Body", http.StatusBadRequest)
+	// Strict JSON decoding
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&l); err != nil {
+		pkgutils.JSONError(w, "Invalid Request Body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Validate location data
+	if err := l.Validate(); err != nil {
+		pkgutils.JSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	data, err := utils.GetStructValues(l)
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to parse location data").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to parse location data").Error(), http.StatusInternalServerError)
 		return
 	}
 
 	query, args, err := utils.GenerateInsertQuery("locations", data)
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to generate insert query").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to generate insert query").Error(), http.StatusInternalServerError)
 		return
 	}
 
 	err = db.QueryRow(query, args...).Scan(&l.ID)
 
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to create location").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to create location").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -178,10 +187,10 @@ func GetLocation(w http.ResponseWriter, r *http.Request) {
 		Scan(&l.ID, &l.Name, &l.City, &l.Country, &address, &createdAt)
 
 	if err == sql.ErrNoRows {
-		http.Error(w, "Location not found", http.StatusNotFound)
+		pkgutils.JSONError(w, "Location not found", http.StatusNotFound)
 		return
 	} else if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to fetch location").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to fetch location").Error(), http.StatusInternalServerError)
 		return
 	}
 	l.Address = address.String
@@ -197,21 +206,30 @@ func UpdateLocation(w http.ResponseWriter, r *http.Request) {
 	id := vars["id"]
 
 	var l models.Location
-	if err := json.NewDecoder(r.Body).Decode(&l); err != nil {
-		http.Error(w, "Invalid Body", http.StatusBadRequest)
+	// Strict JSON decoding
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&l); err != nil {
+		pkgutils.JSONError(w, "Invalid Request Body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Validate location data
+	if err := l.Validate(); err != nil {
+		pkgutils.JSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	query := "UPDATE locations SET name=$1, city=$2, country=$3, address=$4 WHERE id=$5"
 	res, err := db.Exec(query, l.Name, l.City, l.Country, l.Address, id)
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to update location").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to update location").Error(), http.StatusInternalServerError)
 		return
 	}
 
 	rows, _ := res.RowsAffected()
 	if rows == 0 {
-		http.Error(w, "Location not found", http.StatusNotFound)
+		pkgutils.JSONError(w, "Location not found", http.StatusNotFound)
 		return
 	}
 	l.ID = id
@@ -225,13 +243,13 @@ func DeleteLocation(w http.ResponseWriter, r *http.Request) {
 
 	res, err := db.Exec("DELETE FROM locations WHERE id=$1", id)
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to delete location").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to delete location").Error(), http.StatusInternalServerError)
 		return
 	}
 
 	rows, _ := res.RowsAffected()
 	if rows == 0 {
-		http.Error(w, "Location not found", http.StatusNotFound)
+		pkgutils.JSONError(w, "Location not found", http.StatusNotFound)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -245,7 +263,7 @@ func PatchLocation(w http.ResponseWriter, r *http.Request) {
 
 	var updates map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
-		http.Error(w, "Invalid Request Body", http.StatusBadRequest)
+		pkgutils.JSONError(w, "Invalid Request Body", http.StatusBadRequest)
 		return
 	}
 
@@ -256,21 +274,39 @@ func PatchLocation(w http.ResponseWriter, r *http.Request) {
 		"address": true,
 	}
 
+	// VALIDATION
+	if val, ok := updates["name"]; ok && strings.TrimSpace(fmt.Sprintf("%v", val)) == "" {
+		pkgutils.JSONError(w, "name cannot be empty", http.StatusBadRequest)
+		return
+	}
+	if val, ok := updates["city"]; ok && strings.TrimSpace(fmt.Sprintf("%v", val)) == "" {
+		pkgutils.JSONError(w, "city cannot be empty", http.StatusBadRequest)
+		return
+	}
+	if val, ok := updates["country"]; ok && strings.TrimSpace(fmt.Sprintf("%v", val)) == "" {
+		pkgutils.JSONError(w, "country cannot be empty", http.StatusBadRequest)
+		return
+	}
+	if val, ok := updates["address"]; ok && strings.TrimSpace(fmt.Sprintf("%v", val)) == "" {
+		pkgutils.JSONError(w, "address cannot be empty", http.StatusBadRequest)
+		return
+	}
+
 	query, args, err := utils.BuildUpdateQuery("locations", updates, allowedFields, id)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		pkgutils.JSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	res, err := db.Exec(query, args...)
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to patch location").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to patch location").Error(), http.StatusInternalServerError)
 		return
 	}
 
 	rowsAffected, _ := res.RowsAffected()
 	if rowsAffected == 0 {
-		http.Error(w, "Location not found", http.StatusNotFound)
+		pkgutils.JSONError(w, "Location not found", http.StatusNotFound)
 		return
 	}
 
@@ -280,7 +316,7 @@ func PatchLocation(w http.ResponseWriter, r *http.Request) {
 	fetchQuery := "SELECT id, name, city, country, address, created_at FROM locations WHERE id=$1"
 	err = db.QueryRow(fetchQuery, id).Scan(&l.ID, &l.Name, &l.City, &l.Country, &address, &createdAt)
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to fetch updated location").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to fetch updated location").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -296,18 +332,18 @@ func BulkPatchLocations(w http.ResponseWriter, r *http.Request) {
 
 	var updates []map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
-		http.Error(w, "Invalid Request Body", http.StatusBadRequest)
+		pkgutils.JSONError(w, "Invalid Request Body", http.StatusBadRequest)
 		return
 	}
 
 	if len(updates) == 0 {
-		http.Error(w, "No updates provided", http.StatusBadRequest)
+		pkgutils.JSONError(w, "No updates provided", http.StatusBadRequest)
 		return
 	}
 
 	tx, err := db.Begin()
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to start database transaction").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to start database transaction").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -330,7 +366,21 @@ func BulkPatchLocations(w http.ResponseWriter, r *http.Request) {
 	for _, item := range updates {
 		id, ok := item["id"]
 		if !ok {
-			http.Error(w, "Missing ID in one of the update items", http.StatusBadRequest)
+			pkgutils.JSONError(w, "Missing ID in one of the update items", http.StatusBadRequest)
+			return
+		}
+
+		// VALIDATION
+		if val, ok := item["name"]; ok && strings.TrimSpace(fmt.Sprintf("%v", val)) == "" {
+			pkgutils.JSONError(w, fmt.Sprintf("name cannot be empty for location %v", id), http.StatusBadRequest)
+			return
+		}
+		if val, ok := item["city"]; ok && strings.TrimSpace(fmt.Sprintf("%v", val)) == "" {
+			pkgutils.JSONError(w, fmt.Sprintf("city cannot be empty for location %v", id), http.StatusBadRequest)
+			return
+		}
+		if val, ok := item["country"]; ok && strings.TrimSpace(fmt.Sprintf("%v", val)) == "" {
+			pkgutils.JSONError(w, fmt.Sprintf("country cannot be empty for location %v", id), http.StatusBadRequest)
 			return
 		}
 
@@ -342,14 +392,14 @@ func BulkPatchLocations(w http.ResponseWriter, r *http.Request) {
 
 		_, err = tx.Exec(query, args...)
 		if err != nil {
-			http.Error(w, pkgutils.ErrorHandler(err, fmt.Sprintf("Error updating location ID %v", id)).Error(), http.StatusInternalServerError)
+			pkgutils.JSONError(w, pkgutils.ErrorHandler(err, fmt.Sprintf("Error updating location ID %v", id)).Error(), http.StatusInternalServerError)
 			return
 		}
 	}
 
 	err = tx.Commit()
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to commit transaction").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to commit transaction").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -362,18 +412,18 @@ func BulkDeleteLocations(w http.ResponseWriter, r *http.Request) {
 
 	var ids []string
 	if err := json.NewDecoder(r.Body).Decode(&ids); err != nil {
-		http.Error(w, "Invalid Request Body", http.StatusBadRequest)
+		pkgutils.JSONError(w, "Invalid Request Body", http.StatusBadRequest)
 		return
 	}
 
 	if len(ids) == 0 {
-		http.Error(w, "No IDs provided", http.StatusBadRequest)
+		pkgutils.JSONError(w, "No IDs provided", http.StatusBadRequest)
 		return
 	}
 
 	tx, err := db.Begin()
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to start database transaction").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to start database transaction").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -390,20 +440,20 @@ func BulkDeleteLocations(w http.ResponseWriter, r *http.Request) {
 	for _, id := range ids {
 		res, err := tx.Exec(query, id)
 		if err != nil {
-			http.Error(w, pkgutils.ErrorHandler(err, fmt.Sprintf("Error deleting location ID %v", id)).Error(), http.StatusInternalServerError)
+			pkgutils.JSONError(w, pkgutils.ErrorHandler(err, fmt.Sprintf("Error deleting location ID %v", id)).Error(), http.StatusInternalServerError)
 			return
 		}
 
 		rowsAffected, _ := res.RowsAffected()
 		if rowsAffected == 0 {
-			http.Error(w, fmt.Sprintf("Location ID %v not found", id), http.StatusNotFound)
+			pkgutils.JSONError(w, fmt.Sprintf("Location ID %v not found", id), http.StatusNotFound)
 			return
 		}
 	}
 
 	err = tx.Commit()
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to commit transaction").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to commit transaction").Error(), http.StatusInternalServerError)
 		return
 	}
 

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"restapi/internal/models"
 	"restapi/internal/utils"
@@ -39,7 +40,7 @@ func GetDevices(w http.ResponseWriter, r *http.Request) {
 	// 3. Execute Query
 	devices, err := SelectDevices(query, args)
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to fetch devices").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to fetch devices").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -209,10 +210,10 @@ func GetDevice(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err == sql.ErrNoRows {
-		http.Error(w, "Device not found", http.StatusNotFound)
+		pkgutils.JSONError(w, "Device not found", http.StatusNotFound)
 		return
 	} else if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to fetch device").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to fetch device").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -230,8 +231,17 @@ func CreateDevice(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	var d models.Device
-	if err := json.NewDecoder(r.Body).Decode(&d); err != nil {
-		http.Error(w, "Invalid Request Body", http.StatusBadRequest)
+	// Strict JSON decoding to disallow unknown fields
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&d); err != nil {
+		pkgutils.JSONError(w, "Invalid Request Body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Validate device data
+	if err := d.Validate(); err != nil {
+		pkgutils.JSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -239,19 +249,19 @@ func CreateDevice(w http.ResponseWriter, r *http.Request) {
 	// Insert into DB
 	data, err := utils.GetStructValues(d)
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to parse device data").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to parse device data").Error(), http.StatusInternalServerError)
 		return
 	}
 
 	query, args, err := utils.GenerateInsertQuery("devices", data)
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to generate insert query").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to generate insert query").Error(), http.StatusInternalServerError)
 		return
 	}
 
 	err = db.QueryRow(query, args...).Scan(&d.ID)
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to create device").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to create device").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -275,8 +285,17 @@ func UpdateDevice(w http.ResponseWriter, r *http.Request) {
 	id := vars["id"]
 
 	var d models.Device
-	if err := json.NewDecoder(r.Body).Decode(&d); err != nil {
-		http.Error(w, "Invalid Request Body", http.StatusBadRequest)
+	// Strict JSON decoding
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&d); err != nil {
+		pkgutils.JSONError(w, "Invalid Request Body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Validate device data
+	if err := d.Validate(); err != nil {
+		pkgutils.JSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -285,13 +304,13 @@ func UpdateDevice(w http.ResponseWriter, r *http.Request) {
 
 	res, err := db.Exec(query, d.Hostname, d.IP, d.Model, d.Vendor, d.OS, d.SerialNumber, d.Status, d.RackPosition, d.LocationID, id)
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to update device").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to update device").Error(), http.StatusInternalServerError)
 		return
 	}
 
 	rowsAffected, _ := res.RowsAffected()
 	if rowsAffected == 0 {
-		http.Error(w, "Device not found", http.StatusNotFound)
+		pkgutils.JSONError(w, "Device not found", http.StatusNotFound)
 		return
 	}
 
@@ -308,13 +327,13 @@ func DeleteDevice(w http.ResponseWriter, r *http.Request) {
 	query := "DELETE FROM devices WHERE id = $1"
 	res, err := db.Exec(query, id)
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to delete device").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to delete device").Error(), http.StatusInternalServerError)
 		return
 	}
 
 	rowsAffected, _ := res.RowsAffected()
 	if rowsAffected == 0 {
-		http.Error(w, "Device not found", http.StatusNotFound)
+		pkgutils.JSONError(w, "Device not found", http.StatusNotFound)
 		return
 	}
 
@@ -329,12 +348,12 @@ func PatchDevice(w http.ResponseWriter, r *http.Request) {
 
 	var updates map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
-		http.Error(w, "Invalid Request Body", http.StatusBadRequest)
+		pkgutils.JSONError(w, "Invalid Request Body", http.StatusBadRequest)
 		return
 	}
 
 	if len(updates) == 0 {
-		http.Error(w, "No fields to update", http.StatusBadRequest)
+		pkgutils.JSONError(w, "No fields to update", http.StatusBadRequest)
 		return
 	}
 
@@ -350,10 +369,37 @@ func PatchDevice(w http.ResponseWriter, r *http.Request) {
 		"location_id":   true,
 	}
 
+	// VALIDATION LOGIC start
+	// 1. Check for empty strings on required fields if they are present
+	if val, ok := updates["hostname"]; ok && strings.TrimSpace(fmt.Sprintf("%v", val)) == "" {
+		pkgutils.JSONError(w, "hostname cannot be empty", http.StatusBadRequest)
+		return
+	}
+	if val, ok := updates["ip"]; ok {
+		ipStr := fmt.Sprintf("%v", val)
+		if strings.TrimSpace(ipStr) == "" {
+			pkgutils.JSONError(w, "ip cannot be empty", http.StatusBadRequest)
+			return
+		}
+		if net.ParseIP(ipStr) == nil {
+			pkgutils.JSONError(w, "invalid ip address format", http.StatusBadRequest)
+			return
+		}
+	}
+	if val, ok := updates["status"]; ok {
+		status := strings.ToLower(fmt.Sprintf("%v", val))
+		validStatuses := map[string]bool{"active": true, "offline": true, "maintenance": true, "provisioning": true}
+		if !validStatuses[status] {
+			pkgutils.JSONError(w, "invalid status", http.StatusBadRequest)
+			return
+		}
+	}
+	// VALIDATION LOGIC end
+
 	// Use generic builder
 	query, args, err := utils.BuildUpdateQuery("devices", updates, allowedFields, id)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		pkgutils.JSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -364,13 +410,13 @@ func PatchDevice(w http.ResponseWriter, r *http.Request) {
 
 	res, err := db.Exec(query, args...)
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to patch device").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to patch device").Error(), http.StatusInternalServerError)
 		return
 	}
 
 	rowsAffected, _ := res.RowsAffected()
 	if rowsAffected == 0 {
-		http.Error(w, "Device not found", http.StatusNotFound)
+		pkgutils.JSONError(w, "Device not found", http.StatusNotFound)
 		return
 	}
 
@@ -381,7 +427,7 @@ func PatchDevice(w http.ResponseWriter, r *http.Request) {
 	fetchQuery := "SELECT id, hostname, ip, model, vendor, os, serial_number, status, rack_position, location_id, created_at, updated_at FROM devices WHERE id = $1"
 	err = db.QueryRow(fetchQuery, id).Scan(&d.ID, &d.Hostname, &d.IP, &d.Model, &d.Vendor, &d.OS, &serialNumber, &d.Status, &rackPosition, &locationID, &createdAt, &updatedAt)
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to fetch updated device").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to fetch updated device").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -401,19 +447,19 @@ func BulkPatchDevices(w http.ResponseWriter, r *http.Request) {
 	// 1. Parse Request Body
 	var updates []map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
-		http.Error(w, "Invalid Request Body", http.StatusBadRequest)
+		pkgutils.JSONError(w, "Invalid Request Body", http.StatusBadRequest)
 		return
 	}
 
 	if len(updates) == 0 {
-		http.Error(w, "No updates provided", http.StatusBadRequest)
+		pkgutils.JSONError(w, "No updates provided", http.StatusBadRequest)
 		return
 	}
 
 	// 2. Start Transaction
 	tx, err := db.Begin()
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to start database transaction").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to start database transaction").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -443,8 +489,29 @@ func BulkPatchDevices(w http.ResponseWriter, r *http.Request) {
 	for _, item := range updates {
 		id, ok := item["id"]
 		if !ok {
-			http.Error(w, "Missing ID in one of the update items", http.StatusBadRequest)
+			pkgutils.JSONError(w, "Missing ID in one of the update items", http.StatusBadRequest)
 			return // Triggers rollback via defer
+		}
+
+		// VALIDATION
+		if val, ok := item["hostname"]; ok && strings.TrimSpace(fmt.Sprintf("%v", val)) == "" {
+			pkgutils.JSONError(w, fmt.Sprintf("hostname cannot be empty for device %v", id), http.StatusBadRequest)
+			return
+		}
+		if val, ok := item["status"]; ok {
+			status := strings.ToLower(fmt.Sprintf("%v", val))
+			validStatuses := map[string]bool{"active": true, "offline": true, "maintenance": true, "provisioning": true}
+			if !validStatuses[status] {
+				pkgutils.JSONError(w, fmt.Sprintf("invalid status for device %v", id), http.StatusBadRequest)
+				return
+			}
+		}
+		if val, ok := item["ip"]; ok {
+			ipStr := fmt.Sprintf("%v", val)
+			if ipStr != "" && net.ParseIP(ipStr) == nil {
+				pkgutils.JSONError(w, fmt.Sprintf("invalid ip address format for device %v", id), http.StatusBadRequest)
+				return
+			}
 		}
 
 		// Use Builder
@@ -459,7 +526,7 @@ func BulkPatchDevices(w http.ResponseWriter, r *http.Request) {
 
 		_, err = tx.Exec(query, args...)
 		if err != nil {
-			http.Error(w, pkgutils.ErrorHandler(err, fmt.Sprintf("Error updating device ID %v", id)).Error(), http.StatusInternalServerError)
+			pkgutils.JSONError(w, pkgutils.ErrorHandler(err, fmt.Sprintf("Error updating device ID %v", id)).Error(), http.StatusInternalServerError)
 			return // Triggers rollback
 		}
 	}
@@ -467,7 +534,7 @@ func BulkPatchDevices(w http.ResponseWriter, r *http.Request) {
 	// 4. Commit Transaction
 	err = tx.Commit()
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to commit transaction").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to commit transaction").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -481,19 +548,19 @@ func BulkDeleteDevices(w http.ResponseWriter, r *http.Request) {
 	// 1. Parse Request Body (Expects a list of IDs)
 	var ids []string
 	if err := json.NewDecoder(r.Body).Decode(&ids); err != nil {
-		http.Error(w, "Invalid Request Body", http.StatusBadRequest)
+		pkgutils.JSONError(w, "Invalid Request Body", http.StatusBadRequest)
 		return
 	}
 
 	if len(ids) == 0 {
-		http.Error(w, "No IDs provided", http.StatusBadRequest)
+		pkgutils.JSONError(w, "No IDs provided", http.StatusBadRequest)
 		return
 	}
 
 	// 2. Start Transaction
 	tx, err := db.Begin()
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to start database transaction").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to start database transaction").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -511,7 +578,7 @@ func BulkDeleteDevices(w http.ResponseWriter, r *http.Request) {
 	for _, id := range ids {
 		res, err := tx.Exec(query, id)
 		if err != nil {
-			http.Error(w, pkgutils.ErrorHandler(err, fmt.Sprintf("Error deleting device ID %v", id)).Error(), http.StatusInternalServerError)
+			pkgutils.JSONError(w, pkgutils.ErrorHandler(err, fmt.Sprintf("Error deleting device ID %v", id)).Error(), http.StatusInternalServerError)
 			return // Triggers rollback
 		}
 
@@ -520,7 +587,7 @@ func BulkDeleteDevices(w http.ResponseWriter, r *http.Request) {
 			// Option: Fail entire batch if one is missing, OR accept it.
 			// For strict middleware/API consistency, often it's better to fail or warn.
 			// Here we will choose to fail to ensure data consistency as requested by "like BulkPatch".
-			http.Error(w, fmt.Sprintf("Device ID %v not found", id), http.StatusNotFound)
+			pkgutils.JSONError(w, fmt.Sprintf("Device ID %v not found", id), http.StatusNotFound)
 			return // Triggers rollback
 		}
 	}
@@ -528,10 +595,49 @@ func BulkDeleteDevices(w http.ResponseWriter, r *http.Request) {
 	// 4. Commit Transaction
 	err = tx.Commit()
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to commit transaction").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to commit transaction").Error(), http.StatusInternalServerError)
 		return
 	}
 
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(`{"status": "success", "message": "Bulk delete completed successfully"}`))
+}
+
+// GetDevicesByLocation handles GET requests for devices in a specific location
+// Route: /locations/{id}/devices
+func GetDevicesByLocation(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	vars := mux.Vars(r)
+	locationID := vars["id"]
+
+	// Reuse existing filter logic
+	filters := map[string]string{
+		"location_id": locationID,
+	}
+
+	// 1. Build Query
+	query, args := FilterDevices(filters)
+
+	// 2. Add Sorting (Optional, can support if query params exist)
+	sorts := r.URL.Query()["sortby"]
+	query = AddDeviceSorting(query, sorts)
+
+	// 3. Execute
+	devices, err := SelectDevices(query, args)
+	if err != nil {
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to fetch devices for location").Error(), http.StatusInternalServerError)
+		return
+	}
+
+	response := struct {
+		Status string          `json:"status"`
+		Count  int             `json:"count"`
+		Data   []models.Device `json:"data"`
+	}{
+		Status: "success",
+		Count:  len(devices),
+		Data:   devices,
+	}
+
+	json.NewEncoder(w).Encode(response)
 }

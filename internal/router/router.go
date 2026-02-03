@@ -74,6 +74,9 @@ func Routes() *mux.Router {
 	router.HandleFunc("/locations/{id}", handlers.PatchLocation).Methods("PATCH")
 	router.HandleFunc("/locations/{id}", handlers.DeleteLocation).Methods("DELETE")
 
+	router.HandleFunc("/locations/{id}/devices", handlers.GetDevicesByLocation).Methods("GET")
+	router.HandleFunc("/devices/{id}/interfaces", handlers.GetInterfacesByDevice).Methods("GET")
+
 	// VLANs
 	router.HandleFunc("/vlans", handlers.GetVLANs).Methods("GET")
 	router.HandleFunc("/vlans", handlers.CreateVLAN).Methods("POST")

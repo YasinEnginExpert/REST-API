@@ -3,11 +3,6 @@ BINARY_NAME=bin/api.exe
 MAIN_FILE=cmd/api/main.go
 CERTS_DIR=certs
 
-# Colors for nicer output
-GREEN=\033[0;32m
-CYAN=\033[0;36m
-NC=\033[0m # No Color
-
 .PHONY: all build run test clean up down gen-certs help start
 
 # Default target
@@ -17,65 +12,70 @@ help: ## Display this help screen
 	@echo "Usage: make [target]"
 	@echo ""
 	@echo "Targets:"
-	@awk 'BEGIN {FS = ":.*##"; printf "\033[36m\033[0m"} /^[a-zA-Z_-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*##";} /^[a-zA-Z_-]+:.*?##/ { printf "  %-15s %s\n", $$1, $$2 } /^##@/ { printf "\n%s\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
 
 ##@ Development
 
 run: ## Run the application directly
-	@echo "$(GREEN)Running application...$(NC)"
+	@echo "Running application..."
 	go run $(MAIN_FILE)
 
 build: ## Build the binary
-	@echo "$(GREEN)Building binary...$(NC)"
+	@echo "Building binary..."
 	@mkdir -p bin
 	go build -o $(BINARY_NAME) $(MAIN_FILE)
-	@echo "$(GREEN)Build complete: $(BINARY_NAME)$(NC)"
+	@echo "Build complete: $(BINARY_NAME)"
 
 test: ## Run tests
-	@echo "$(GREEN)Running tests...$(NC)"
+	@echo "Running tests..."
 	go test ./... -v
 
 clean: ## Clean build artifacts
-	@echo "$(GREEN)Cleaning...$(NC)"
+	@echo "Cleaning..."
 	@rm -rf bin
-	@echo "$(GREEN)Clean complete$(NC)"
+	@echo "Clean complete"
+
+reset: down ## Stop containers AND wipe database volume (Fresh Start)
+	@echo "Wiping database volume..."
+	docker-compose down -v
+	@echo "Database wiped! Run 'make start' to re-seed."
 
 ##@ Docker
 
 up: ## Start Docker containers in background
-	@echo "$(GREEN)Starting Docker containers...$(NC)"
+	@echo "Starting Docker containers..."
 	docker-compose up -d
-	@echo "$(GREEN)Docker containers started!$(NC)"
+	@echo "Docker containers started!"
 
 down: ## Stop Docker containers
-	@echo "$(GREEN)Stopping Docker containers...$(NC)"
+	@echo "Stopping Docker containers..."
 	docker-compose down
-	@echo "$(GREEN)Docker containers stopped!$(NC)"
+	@echo "Docker containers stopped!"
 
 start: up run ## Start Docker and then run the app
 
 ##@ Security
 
 gen-certs: ## Generate self-signed certificates for development
-	@echo "$(CYAN)Creating CA...$(NC)"
+	@echo "Creating CA..."
 	openssl genrsa -out $(CERTS_DIR)/ca.key 2048
 	openssl req -x509 -new -nodes -key $(CERTS_DIR)/ca.key -sha256 -days 1825 -out $(CERTS_DIR)/ca.pem -subj "//C=TR/ST=Samsun/L=Samsun/O=MyDevRootCA/CN=MyDevRootCA"
 	
-	@echo "$(CYAN)Creating Server Key and CSR...$(NC)"
+	@echo "Creating Server Key and CSR..."
 	openssl genrsa -out $(CERTS_DIR)/key.pem 2048
 	openssl req -new -key $(CERTS_DIR)/key.pem -out $(CERTS_DIR)/server.csr -config $(CERTS_DIR)/openssl.conf
 	
-	@echo "$(CYAN)Signing Server Certificate...$(NC)"
+	@echo "Signing Server Certificate..."
 	openssl x509 -req -in $(CERTS_DIR)/server.csr -CA $(CERTS_DIR)/ca.pem -CAkey $(CERTS_DIR)/ca.key -CAcreateserial -out $(CERTS_DIR)/cert.pem -days 365 -sha256 -extfile $(CERTS_DIR)/openssl.conf -extensions v3_req
 
-	@echo "$(CYAN)Creating Client Key and CSR...$(NC)"
+	@echo "Creating Client Key and CSR..."
 	openssl genrsa -out $(CERTS_DIR)/client.key 2048
 	openssl req -new -key $(CERTS_DIR)/client.key -out $(CERTS_DIR)/client.csr -subj "//C=TR/ST=Samsun/L=Samsun/O=MyDevClient/CN=MyDevClient"
 
-	@echo "$(CYAN)Signing Client Certificate...$(NC)"
+	@echo "Signing Client Certificate..."
 	openssl x509 -req -in $(CERTS_DIR)/client.csr -CA $(CERTS_DIR)/ca.pem -CAkey $(CERTS_DIR)/ca.key -CAcreateserial -out $(CERTS_DIR)/client.pem -days 365 -sha256 -extfile $(CERTS_DIR)/openssl.conf -extensions v3_req
 
-	@echo "$(CYAN)Creating Client PFx for Postman/Browser (Password: changeit)...$(NC)"
+	@echo "Creating Client PFx for Postman/Browser (Password: changeit)..."
 	openssl pkcs12 -export -out $(CERTS_DIR)/client.p12 -inkey $(CERTS_DIR)/client.key -in $(CERTS_DIR)/client.pem -passout pass:changeit
 
-	@echo "$(GREEN)Done! Import $(CERTS_DIR)/ca.pem to your Trusted Root Store.$(NC)"
+	@echo "Done! Import $(CERTS_DIR)/ca.pem to your Trusted Root Store."

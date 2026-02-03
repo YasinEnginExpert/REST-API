@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"restapi/internal/models"
 	"restapi/internal/utils"
@@ -39,7 +40,7 @@ func GetInterfaces(w http.ResponseWriter, r *http.Request) {
 	// 3. Execute
 	interfaces, err := SelectInterfaces(query, args)
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to fetch interfaces").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to fetch interfaces").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -161,10 +162,10 @@ func GetInterface(w http.ResponseWriter, r *http.Request) {
 	err := db.QueryRow(query, id).Scan(&i.ID, &i.DeviceID, &i.Name, &ipAddress, &macAddress, &speed, &typeStr, &description, &i.Status)
 
 	if err == sql.ErrNoRows {
-		http.Error(w, "Interface not found", http.StatusNotFound)
+		pkgutils.JSONError(w, "Interface not found", http.StatusNotFound)
 		return
 	} else if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to fetch interface").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to fetch interface").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -181,27 +182,36 @@ func GetInterface(w http.ResponseWriter, r *http.Request) {
 func CreateInterface(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	var i models.Interface
-	if err := json.NewDecoder(r.Body).Decode(&i); err != nil {
-		http.Error(w, "Invalid Body", http.StatusBadRequest)
+	// Strict JSON decoding
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&i); err != nil {
+		pkgutils.JSONError(w, "Invalid Request Body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Validate interface data
+	if err := i.Validate(); err != nil {
+		pkgutils.JSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	// Map data for insert
 	data, err := utils.GetStructValues(i)
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to parse interface data").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to parse interface data").Error(), http.StatusInternalServerError)
 		return
 	}
 
 	query, args, err := utils.GenerateInsertQuery("interfaces", data)
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to generate insert query").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to generate insert query").Error(), http.StatusInternalServerError)
 		return
 	}
 
 	err = db.QueryRow(query, args...).Scan(&i.ID)
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to create interface").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to create interface").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -216,8 +226,17 @@ func UpdateInterface(w http.ResponseWriter, r *http.Request) {
 	id := vars["id"]
 
 	var i models.Interface
-	if err := json.NewDecoder(r.Body).Decode(&i); err != nil {
-		http.Error(w, "Invalid Body", http.StatusBadRequest)
+	// Strict JSON decoding
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&i); err != nil {
+		pkgutils.JSONError(w, "Invalid Request Body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Validate interface data
+	if err := i.Validate(); err != nil {
+		pkgutils.JSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -226,13 +245,13 @@ func UpdateInterface(w http.ResponseWriter, r *http.Request) {
 
 	res, err := db.Exec(query, i.DeviceID, i.Name, i.IPAddress, i.MACAddress, i.Speed, i.Type, i.Description, i.Status, id)
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to update interface").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to update interface").Error(), http.StatusInternalServerError)
 		return
 	}
 
 	rows, _ := res.RowsAffected()
 	if rows == 0 {
-		http.Error(w, "Interface not found", http.StatusNotFound)
+		pkgutils.JSONError(w, "Interface not found", http.StatusNotFound)
 		return
 	}
 	i.ID = id
@@ -246,13 +265,13 @@ func DeleteInterface(w http.ResponseWriter, r *http.Request) {
 
 	res, err := db.Exec("DELETE FROM interfaces WHERE id=$1", id)
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to delete interface").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to delete interface").Error(), http.StatusInternalServerError)
 		return
 	}
 
 	rows, _ := res.RowsAffected()
 	if rows == 0 {
-		http.Error(w, "Interface not found", http.StatusNotFound)
+		pkgutils.JSONError(w, "Interface not found", http.StatusNotFound)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -266,7 +285,7 @@ func PatchInterface(w http.ResponseWriter, r *http.Request) {
 
 	var updates map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
-		http.Error(w, "Invalid Request Body", http.StatusBadRequest)
+		pkgutils.JSONError(w, "Invalid Request Body", http.StatusBadRequest)
 		return
 	}
 
@@ -281,21 +300,55 @@ func PatchInterface(w http.ResponseWriter, r *http.Request) {
 		"status":      true,
 	}
 
+	// VALIDATION
+	if val, ok := updates["name"]; ok && strings.TrimSpace(fmt.Sprintf("%v", val)) == "" {
+		pkgutils.JSONError(w, "name cannot be empty", http.StatusBadRequest)
+		return
+	}
+	if val, ok := updates["ip_address"]; ok {
+		ipStr := fmt.Sprintf("%v", val)
+		if ipStr != "" && net.ParseIP(ipStr) == nil {
+			pkgutils.JSONError(w, "invalid ip_address format", http.StatusBadRequest)
+			return
+		}
+	}
+	if val, ok := updates["mac_address"]; ok {
+		macStr := fmt.Sprintf("%v", val)
+		if macStr != "" {
+			if _, err := net.ParseMAC(macStr); err != nil {
+				pkgutils.JSONError(w, "invalid mac_address format", http.StatusBadRequest)
+				return
+			}
+		}
+	}
+	if val, ok := updates["type"]; ok && strings.TrimSpace(fmt.Sprintf("%v", val)) == "" {
+		pkgutils.JSONError(w, "type cannot be empty", http.StatusBadRequest)
+		return
+	}
+	if val, ok := updates["status"]; ok {
+		status := strings.ToLower(fmt.Sprintf("%v", val))
+		validStatuses := map[string]bool{"up": true, "down": true, "administratively down": true}
+		if !validStatuses[status] {
+			pkgutils.JSONError(w, "invalid status", http.StatusBadRequest)
+			return
+		}
+	}
+
 	query, args, err := utils.BuildUpdateQuery("interfaces", updates, allowedFields, id)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		pkgutils.JSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	res, err := db.Exec(query, args...)
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to patch interface").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to patch interface").Error(), http.StatusInternalServerError)
 		return
 	}
 
 	rowsAffected, _ := res.RowsAffected()
 	if rowsAffected == 0 {
-		http.Error(w, "Interface not found", http.StatusNotFound)
+		pkgutils.JSONError(w, "Interface not found", http.StatusNotFound)
 		return
 	}
 
@@ -306,7 +359,7 @@ func PatchInterface(w http.ResponseWriter, r *http.Request) {
 	fetchQuery := "SELECT id, device_id, name, ip_address, mac_address, speed, type, description, status FROM interfaces WHERE id=$1"
 	err = db.QueryRow(fetchQuery, id).Scan(&i.ID, &i.DeviceID, &i.Name, &ipAddress, &macAddress, &speed, &typeStr, &description, &i.Status)
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to fetch updated interface").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to fetch updated interface").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -325,18 +378,18 @@ func BulkPatchInterfaces(w http.ResponseWriter, r *http.Request) {
 
 	var updates []map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
-		http.Error(w, "Invalid Request Body", http.StatusBadRequest)
+		pkgutils.JSONError(w, "Invalid Request Body", http.StatusBadRequest)
 		return
 	}
 
 	if len(updates) == 0 {
-		http.Error(w, "No updates provided", http.StatusBadRequest)
+		pkgutils.JSONError(w, "No updates provided", http.StatusBadRequest)
 		return
 	}
 
 	tx, err := db.Begin()
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to start database transaction").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to start database transaction").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -363,8 +416,34 @@ func BulkPatchInterfaces(w http.ResponseWriter, r *http.Request) {
 	for _, item := range updates {
 		id, ok := item["id"]
 		if !ok {
-			http.Error(w, "Missing ID in one of the update items", http.StatusBadRequest)
+			pkgutils.JSONError(w, "Missing ID in one of the update items", http.StatusBadRequest)
 			return
+		}
+
+		// VALIDATION
+		if val, ok := item["name"]; ok && strings.TrimSpace(fmt.Sprintf("%v", val)) == "" {
+			pkgutils.JSONError(w, fmt.Sprintf("name cannot be empty for interface %v", id), http.StatusBadRequest)
+			return
+		}
+		if val, ok := item["type"]; ok && strings.TrimSpace(fmt.Sprintf("%v", val)) == "" {
+			pkgutils.JSONError(w, fmt.Sprintf("type cannot be empty for interface %v", id), http.StatusBadRequest)
+			return
+		}
+		if val, ok := item["ip_address"]; ok {
+			ipStr := fmt.Sprintf("%v", val)
+			if ipStr != "" && net.ParseIP(ipStr) == nil {
+				pkgutils.JSONError(w, fmt.Sprintf("invalid ip_address format for interface %v", id), http.StatusBadRequest)
+				return
+			}
+		}
+		if val, ok := item["mac_address"]; ok {
+			macStr := fmt.Sprintf("%v", val)
+			if macStr != "" {
+				if _, err := net.ParseMAC(macStr); err != nil {
+					pkgutils.JSONError(w, fmt.Sprintf("invalid mac_address format for interface %v", id), http.StatusBadRequest)
+					return
+				}
+			}
 		}
 
 		query, args, err := utils.BuildUpdateQuery("interfaces", item, allowedFields, id)
@@ -375,14 +454,14 @@ func BulkPatchInterfaces(w http.ResponseWriter, r *http.Request) {
 
 		_, err = tx.Exec(query, args...)
 		if err != nil {
-			http.Error(w, pkgutils.ErrorHandler(err, fmt.Sprintf("Error updating interface ID %v", id)).Error(), http.StatusInternalServerError)
+			pkgutils.JSONError(w, pkgutils.ErrorHandler(err, fmt.Sprintf("Error updating interface ID %v", id)).Error(), http.StatusInternalServerError)
 			return
 		}
 	}
 
 	err = tx.Commit()
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to commit transaction").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to commit transaction").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -395,18 +474,18 @@ func BulkDeleteInterfaces(w http.ResponseWriter, r *http.Request) {
 
 	var ids []string
 	if err := json.NewDecoder(r.Body).Decode(&ids); err != nil {
-		http.Error(w, "Invalid Request Body", http.StatusBadRequest)
+		pkgutils.JSONError(w, "Invalid Request Body", http.StatusBadRequest)
 		return
 	}
 
 	if len(ids) == 0 {
-		http.Error(w, "No IDs provided", http.StatusBadRequest)
+		pkgutils.JSONError(w, "No IDs provided", http.StatusBadRequest)
 		return
 	}
 
 	tx, err := db.Begin()
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to start database transaction").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to start database transaction").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -423,23 +502,61 @@ func BulkDeleteInterfaces(w http.ResponseWriter, r *http.Request) {
 	for _, id := range ids {
 		res, err := tx.Exec(query, id)
 		if err != nil {
-			http.Error(w, pkgutils.ErrorHandler(err, fmt.Sprintf("Error deleting interface ID %v", id)).Error(), http.StatusInternalServerError)
+			pkgutils.JSONError(w, pkgutils.ErrorHandler(err, fmt.Sprintf("Error deleting interface ID %v", id)).Error(), http.StatusInternalServerError)
 			return
 		}
 
 		rowsAffected, _ := res.RowsAffected()
 		if rowsAffected == 0 {
-			http.Error(w, fmt.Sprintf("Interface ID %v not found", id), http.StatusNotFound)
+			pkgutils.JSONError(w, fmt.Sprintf("Interface ID %v not found", id), http.StatusNotFound)
 			return
 		}
 	}
 
 	err = tx.Commit()
 	if err != nil {
-		http.Error(w, pkgutils.ErrorHandler(err, "Failed to commit transaction").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to commit transaction").Error(), http.StatusInternalServerError)
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(`{"status": "success", "message": "Bulk delete completed successfully"}`))
+}
+
+// GetInterfacesByDevice handles GET requests for interfaces on a specific device
+// Route: /devices/{id}/interfaces
+func GetInterfacesByDevice(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	vars := mux.Vars(r)
+	deviceID := vars["id"]
+
+	// Reuse existing filter logic
+	filters := map[string]string{
+		"device_id": deviceID,
+	}
+
+	// 1. Build Query
+	query, args := FilterInterfaces(filters)
+
+	// 2. Add Sorting
+	sorts := r.URL.Query()["sortby"]
+	query = AddInterfaceSorting(query, sorts)
+
+	// 3. Execute
+	interfaces, err := SelectInterfaces(query, args)
+	if err != nil {
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to fetch interfaces for device").Error(), http.StatusInternalServerError)
+		return
+	}
+
+	response := struct {
+		Status string             `json:"status"`
+		Count  int                `json:"count"`
+		Data   []models.Interface `json:"data"`
+	}{
+		Status: "success",
+		Count:  len(interfaces),
+		Data:   interfaces,
+	}
+
+	json.NewEncoder(w).Encode(response)
 }
