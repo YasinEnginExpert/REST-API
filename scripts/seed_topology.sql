@@ -104,10 +104,11 @@ INSERT INTO interfaces (id, device_id, name, ip_address, mac_address, speed, typ
 -- 9. SINGAPORE UNIVERSITY (Education)
 -- ==================================================================================
 INSERT INTO devices (id, hostname, ip, model, vendor, os, status, location_id, created_at, updated_at) VALUES 
-('dev-sin-core-01', 'sin-uni-core', '10.80.0.1', 'Catalyst 9600', 'Cisco', 'IOS-XE', 'active', 'loc-sg-sin-01', NOW(), NOW()),
+('dev-sin-core-01', 'sin-uni-core', '10.80.0.1', 'Catalyst 9600', 'Cisco', 'IOS-XE', 'active', 'loc-sg-sin-01', NOW(), NOW());
 
 INSERT INTO interfaces (id, device_id, name, ip_address, mac_address, speed, type, description, status) VALUES
 ('if-sin-core-01', 'dev-sin-core-01', 'Hu1/0/1', '10.80.0.1', 'CC:1C:00:80:00:01', '100Gbps', 'fiber', 'ISP Link', 'up');
+INSERT INTO devices (id, hostname, ip, model, vendor, os, status, location_id, created_at, updated_at) VALUES 
 ('dev-sin-wlc-01', 'sin-uni-wlc-pri', '10.80.1.1', '9800-80', 'Cisco', 'IOS-XE', 'active', 'loc-sg-sin-01', NOW(), NOW());
 
 INSERT INTO interfaces (id, device_id, name, ip_address, mac_address, speed, type, description, status) VALUES

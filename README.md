@@ -116,25 +116,25 @@ The formal relationship between managed network entities adheres to the followin
 classDiagram
     direction LR
     class Location {
-        +UUID id
+        +String id
         +String name
         +String city
         +String country
     }
     class Device {
-        +UUID id
+        +String id
         +String hostname
         +IPAddress ip
         +String vendor
     }
     class Interface {
-        +UUID id
+        +String id
         +String name
         +MACAddress mac
         +String speed
     }
     class VLAN {
-        +UUID id
+        +String id
         +Integer vlan_id
         +String name
     }
@@ -223,21 +223,21 @@ Retrieve a list of devices.
   "count": 2,
   "data": [
     {
-      "id": "550e8400-e29b-41d4-a716-446655440000",
-      "hostname": "ank-core-01",
-      "ip": "10.1.1.1",
+      "id": "dev-sf-core-01",
+      "hostname": "sf-hq-core-01",
+      "ip": "10.10.0.1",
       "vendor": "Cisco",
-      "model": "Catalyst 9500",
-      "status": "online",
-      "location_id": "a1b2c3d4-e5f6-7890-1234-567890abcdef"
+      "model": "NCS 5500",
+      "status": "active",
+      "location_id": "loc-us-sf-01"
     },
     {
-      "id": "770e8400-e29b-41d4-a716-446655440022",
-      "hostname": "ist-edge-02",
-      "ip": "10.2.1.1",
-      "vendor": "Juniper",
-      "model": "MX480",
-      "status": "maintenance"
+      "id": "dev-ber-ot-core",
+      "hostname": "ber-factory-core",
+      "ip": "10.20.0.1",
+      "vendor": "Cisco",
+      "model": "IE-5000",
+      "status": "active"
     }
   ]
 }
@@ -249,15 +249,15 @@ Onboard a new device.
 **Request:**
 ```json
 {
-  "hostname": "brs-access-01",
-  "ip": "192.168.20.5",
-  "model": "Aruba 2930F",
-  "vendor": "Aruba",
-  "os": "ArubaOS-Switch",
-  "serial_number": "CN12345678",
-  "status": "active",
-  "rack_position": "Rack 2, U15",
-  "location_id": "UUID_OF_LOCATION"
+  "hostname": "new-access-sw-01",
+  "ip": "192.168.100.5",
+  "model": "Catalyst 9200",
+  "vendor": "Cisco",
+  "os": "IOS-XE",
+  "serial_number": "FOC12345678",
+  "status": "provisioning",
+  "rack_position": "Rack 5, U10",
+  "location_id": "loc-us-sf-01"
 }
 ```
 
@@ -268,7 +268,7 @@ Partially update a device (e.g., change status or IP).
 ```json
 {
   "status": "maintenance",
-  "ip": "192.168.20.10"
+  "ip": "10.10.0.5"
 }
 ```
 
@@ -290,12 +290,12 @@ Add an interface to a device.
 **Request:**
 ```json
 {
-  "device_id": "550e8400-e29b-41d4-a716-446655440000",
-  "name": "TenGigabitEthernet1/1/1",
-  "description": "Uplink to Core",
+  "device_id": "dev-sf-core-01",
+  "name": "HundredGigE0/0/0/1",
+  "description": "Cross-Connect to AWS Direct Connect",
   "type": "fiber",
-  "speed": "10000",
-  "mac_address": "00:50:56:AB:CD:EF",
+  "speed": "100Gbps",
+  "mac_address": "AA:BB:CC:DD:EE:FF",
   "status": "up"
 }
 ```
@@ -306,7 +306,7 @@ Update interface details.
 **Request:**
 ```json
 {
-  "description": "Uplink to Core - REPLACED",
+  "description": "Updated Description - Uplink",
   "status": "down"
 }
 ```
@@ -326,10 +326,11 @@ Define a new site.
 **Request:**
 ```json
 {
-  "name": "Istanbul Data Center",
+  "id": "loc-tr-ist-01",
+  "name": "Istanbul Regional Hub",
   "city": "Istanbul",
   "country": "Turkey",
-  "address": "Levent Mah. Buyukdere Cad. No:1"
+  "address": "Maslak, Buyukdere Cd."
 }
 ```
 
@@ -339,8 +340,8 @@ Update location information.
 **Request:**
 ```json
 {
-  "address": "New Address No:5",
-  "name": "Istanbul DC - Hall 2"
+  "address": "Updated Address: Levent Campus",
+  "name": "Istanbul Main Campus"
 }
 ```
 
@@ -359,9 +360,9 @@ Define a VLAN globally.
 **Request:**
 ```json
 {
-  "vlan_id": 100,
-  "name": "Users_Voice",
-  "description": "Voice over IP Network for Staff"
+  "vlan_id": 999,
+  "name": "Legacy_Printers",
+  "description": "VLAN for old printers"
 }
 ```
 
@@ -371,8 +372,8 @@ Update VLAN details.
 **Request:**
 ```json
 {
-  "name": "Users_Voice_V2",
-  "description": "Updated Voice Vlan"
+  "name": "Legacy_Devices_V2",
+  "description": "Renamed for clarity"
 }
 ```
 
@@ -680,6 +681,40 @@ Content-Type: application/json
     {"id": "dev-sf-core-01", "status": "maintenance"},
     {"id": "dev-sf-fw-01", "status": "INVALID_STATUS_value"}
 ]
+```
+
+---
+
+---
+
+### 8. Complex Filtering & Sorting
+
+Leverage the power of SQL-driven filtering and sorting.
+
+**Find Active Cisco Devices in San Francisco, Sorted by Hostname**
+
+*cURL:*
+```bash
+curl -X GET "http://localhost:8080/devices?vendor=Cisco&status=active&location_id=loc-us-sf-01&sortby=hostname:asc"
+```
+
+*HTTP (Postman):*
+```http
+GET /devices?vendor=Cisco&status=active&location_id=loc-us-sf-01&sortby=hostname:asc HTTP/1.1
+Host: localhost:8080
+```
+
+**List High-Speed Interfaces, Sorted by Speed (Descending)**
+
+*cURL:*
+```bash
+curl -X GET "http://localhost:8080/interfaces?type=fiber&sortby=speed:desc"
+```
+
+*HTTP (Postman):*
+```http
+GET /interfaces?type=fiber&sortby=speed:desc HTTP/1.1
+Host: localhost:8080
 ```
 
 ---

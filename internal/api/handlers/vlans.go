@@ -13,6 +13,30 @@ import (
 	"github.com/gorilla/mux"
 )
 
+// GetVLAN handles GET requests for a single VLAN
+func GetVLAN(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	vars := mux.Vars(r)
+	id := vars["id"]
+
+	query := "SELECT id, vlan_id, name, description FROM vlans WHERE id = $1"
+	var v models.VLAN
+	var description sql.NullString
+
+	err := db.QueryRow(query, id).Scan(&v.ID, &v.VlanID, &v.Name, &description)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			pkgutils.JSONError(w, "VLAN not found", http.StatusNotFound)
+		} else {
+			pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to fetch VLAN").Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+	v.Description = description.String
+
+	json.NewEncoder(w).Encode(v)
+}
+
 // GetVLANs handles GET requests for listing VLANs with optional filtering
 func GetVLANs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
