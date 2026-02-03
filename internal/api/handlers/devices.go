@@ -7,7 +7,7 @@ import (
 	"net"
 	"net/http"
 	"restapi/internal/models"
-	"restapi/internal/utils"
+	"restapi/internal/repositories/sqlconnect"
 	pkgutils "restapi/pkg/utils"
 	"strings"
 
@@ -30,15 +30,10 @@ func GetDevices(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 1. Build Query from Filters
-	query, args := FilterDevices(filters)
-
-	// 2. Add Sorting
 	sorts := r.URL.Query()["sortby"]
-	query = AddDeviceSorting(query, sorts)
 
-	// 3. Execute Query
-	devices, err := SelectDevices(query, args)
+	repo := sqlconnect.NewDeviceRepository(db)
+	devices, err := repo.GetAll(filters, sorts)
 	if err != nil {
 		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to fetch devices").Error(), http.StatusInternalServerError)
 		return
@@ -57,126 +52,6 @@ func GetDevices(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-// FilterDevices builds the SQL query based on filters
-func FilterDevices(filters map[string]string) (string, []interface{}) {
-	query := "SELECT id, hostname, ip, model, vendor, os, serial_number, status, rack_position, location_id, created_at, updated_at FROM devices WHERE 1=1"
-	var args []interface{}
-	argId := 1
-
-	// Allowed filters mapping to DB columns
-	allowedParams := map[string]string{
-		"hostname":      "hostname",
-		"ip":            "ip",
-		"model":         "model",
-		"vendor":        "vendor",
-		"os":            "os",
-		"serial_number": "serial_number",
-		"status":        "status",
-		"rack_position": "rack_position",
-		"location_id":   "location_id",
-		"created_at":    "created_at",
-		"updated_at":    "updated_at",
-	}
-
-	for param, value := range filters {
-		if dbField, ok := allowedParams[param]; ok {
-			query += fmt.Sprintf(" AND %s = $%d", dbField, argId)
-			args = append(args, value)
-			argId++
-		}
-	}
-	return query, args
-}
-
-// AddDeviceSorting appends ORDER BY clauses to the query
-func AddDeviceSorting(query string, sorts []string) string {
-	if len(sorts) == 0 {
-		return query
-	}
-
-	allowedParams := map[string]bool{
-		"hostname":      true,
-		"ip":            true,
-		"model":         true,
-		"vendor":        true,
-		"os":            true,
-		"serial_number": true,
-		"status":        true,
-		"rack_position": true,
-		"location_id":   true,
-		"created_at":    true,
-		"updated_at":    true,
-	}
-
-	var orderClauses []string
-	for _, sortParam := range sorts {
-		parts := strings.Split(sortParam, ":")
-		if len(parts) != 2 {
-			continue
-		}
-		field, order := parts[0], parts[1]
-
-		if allowedParams[field] && isValidSortOrder(order) {
-			orderClauses = append(orderClauses, fmt.Sprintf("%s %s", field, order))
-		}
-	}
-
-	if len(orderClauses) > 0 {
-		query += " ORDER BY " + strings.Join(orderClauses, ", ")
-	}
-	return query
-}
-
-// SelectDevices executes the query and returns device list
-func SelectDevices(query string, args []interface{}) ([]models.Device, error) {
-	rows, err := db.Query(query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var devices []models.Device
-	for rows.Next() {
-		var d models.Device
-		var serialNumber, rackPosition, locationID, createdAt, updatedAt sql.NullString
-
-		err := rows.Scan(&d.ID, &d.Hostname, &d.IP, &d.Model, &d.Vendor, &d.OS, &serialNumber, &d.Status, &rackPosition, &locationID, &createdAt, &updatedAt)
-		if err != nil {
-			return nil, err
-		}
-
-		d.SerialNumber = serialNumber.String
-		d.RackPosition = rackPosition.String
-		d.LocationID = locationID.String
-		d.CreatedAt = createdAt.String
-		d.UpdatedAt = updatedAt.String
-
-		devices = append(devices, d)
-	}
-	return devices, nil
-}
-
-func isValidSortOrder(order string) bool {
-	return order == "asc" || order == "desc"
-}
-
-func isValidSortField(field string) bool {
-	validFields := map[string]bool{
-		"hostname":      true,
-		"ip":            true,
-		"model":         true,
-		"vendor":        true,
-		"os":            true,
-		"serial_number": true,
-		"status":        true,
-		"rack_position": true,
-		"location_id":   true,
-		"created_at":    true,
-		"updated_at":    true,
-	}
-	return validFields[field]
-}
-
 // GetDevice handles GET requests for a single device by ID
 func GetDevice(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -184,30 +59,8 @@ func GetDevice(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
 
-	var d models.Device
-	var serialNumber, rackPosition, locationID, createdAt, updatedAt sql.NullString
-
-	query := "SELECT id, hostname, ip, model, vendor, os, serial_number, status, rack_position, location_id, created_at, updated_at FROM devices WHERE id = $1"
-	err := db.QueryRow(query, id).Scan(&d.ID, &d.Hostname, &d.IP, &d.Model, &d.Vendor, &d.OS, &serialNumber, &d.Status, &rackPosition, &locationID, &createdAt, &updatedAt)
-
-	sortParams := r.URL.Query()["sortby"]
-	if len(sortParams) > 0 {
-		query += "ORDERE BY"
-		for i, param := range sortParams {
-			parts := strings.Split(param, ":")
-			if len(parts) != 2 {
-				continue
-			}
-			field, order := parts[0], parts[1]
-			if !isValidSortField(field) || !isValidSortOrder(order) {
-				continue
-			}
-			if i > 0 {
-				query += ","
-			}
-			query += " " + field + " " + order
-		}
-	}
+	repo := sqlconnect.NewDeviceRepository(db)
+	d, err := repo.GetByID(id)
 
 	if err == sql.ErrNoRows {
 		pkgutils.JSONError(w, "Device not found", http.StatusNotFound)
@@ -216,12 +69,6 @@ func GetDevice(w http.ResponseWriter, r *http.Request) {
 		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to fetch device").Error(), http.StatusInternalServerError)
 		return
 	}
-
-	d.SerialNumber = serialNumber.String
-	d.RackPosition = rackPosition.String
-	d.LocationID = locationID.String
-	d.CreatedAt = createdAt.String
-	d.UpdatedAt = updatedAt.String
 
 	json.NewEncoder(w).Encode(d)
 }
@@ -245,21 +92,8 @@ func CreateDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Insert into DB
-	// Insert into DB
-	data, err := utils.GetStructValues(d)
-	if err != nil {
-		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to parse device data").Error(), http.StatusInternalServerError)
-		return
-	}
-
-	query, args, err := utils.GenerateInsertQuery("devices", data)
-	if err != nil {
-		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to generate insert query").Error(), http.StatusInternalServerError)
-		return
-	}
-
-	err = db.QueryRow(query, args...).Scan(&d.ID)
+	repo := sqlconnect.NewDeviceRepository(db)
+	createdDevice, err := repo.Create(d)
 	if err != nil {
 		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to create device").Error(), http.StatusInternalServerError)
 		return
@@ -270,7 +104,7 @@ func CreateDevice(w http.ResponseWriter, r *http.Request) {
 		Data   models.Device `json:"data"`
 	}{
 		Status: "success",
-		Data:   d,
+		Data:   *createdDevice,
 	}
 
 	w.WriteHeader(http.StatusCreated)
@@ -299,22 +133,19 @@ func UpdateDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query := `UPDATE devices SET hostname=$1, ip=$2, model=$3, vendor=$4, os=$5, serial_number=$6, status=$7, rack_position=$8, location_id=$9, updated_at=CURRENT_TIMESTAMP 
-			  WHERE id=$10`
-
-	res, err := db.Exec(query, d.Hostname, d.IP, d.Model, d.Vendor, d.OS, d.SerialNumber, d.Status, d.RackPosition, d.LocationID, id)
+	d.ID = id
+	repo := sqlconnect.NewDeviceRepository(db)
+	rowsAffected, err := repo.Update(d)
 	if err != nil {
 		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to update device").Error(), http.StatusInternalServerError)
 		return
 	}
 
-	rowsAffected, _ := res.RowsAffected()
 	if rowsAffected == 0 {
 		pkgutils.JSONError(w, "Device not found", http.StatusNotFound)
 		return
 	}
 
-	d.ID = id
 	json.NewEncoder(w).Encode(d)
 }
 
@@ -324,14 +155,13 @@ func DeleteDevice(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
 
-	query := "DELETE FROM devices WHERE id = $1"
-	res, err := db.Exec(query, id)
+	repo := sqlconnect.NewDeviceRepository(db)
+	rowsAffected, err := repo.Delete(id)
 	if err != nil {
 		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to delete device").Error(), http.StatusInternalServerError)
 		return
 	}
 
-	rowsAffected, _ := res.RowsAffected()
 	if rowsAffected == 0 {
 		pkgutils.JSONError(w, "Device not found", http.StatusNotFound)
 		return
@@ -396,46 +226,24 @@ func PatchDevice(w http.ResponseWriter, r *http.Request) {
 	}
 	// VALIDATION LOGIC end
 
-	// Use generic builder
-	query, args, err := utils.BuildUpdateQuery("devices", updates, allowedFields, id)
-	if err != nil {
-		pkgutils.JSONError(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	// Inject updated_at=CURRENT_TIMESTAMP
-	// utils.BuildUpdateQuery returns "UPDATE table SET a=$1 WHERE id=$2"
-	// We simply adding the updated_at clause before the WHERE clause.
-	query = strings.Replace(query, " WHERE", ", updated_at=CURRENT_TIMESTAMP WHERE", 1)
-
-	res, err := db.Exec(query, args...)
+	repo := sqlconnect.NewDeviceRepository(db)
+	rowsAffected, err := repo.Patch(id, updates, allowedFields)
 	if err != nil {
 		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to patch device").Error(), http.StatusInternalServerError)
 		return
 	}
 
-	rowsAffected, _ := res.RowsAffected()
 	if rowsAffected == 0 {
 		pkgutils.JSONError(w, "Device not found", http.StatusNotFound)
 		return
 	}
 
 	// Fetch updated device to return
-	var d models.Device
-	var serialNumber, rackPosition, locationID, createdAt, updatedAt sql.NullString
-
-	fetchQuery := "SELECT id, hostname, ip, model, vendor, os, serial_number, status, rack_position, location_id, created_at, updated_at FROM devices WHERE id = $1"
-	err = db.QueryRow(fetchQuery, id).Scan(&d.ID, &d.Hostname, &d.IP, &d.Model, &d.Vendor, &d.OS, &serialNumber, &d.Status, &rackPosition, &locationID, &createdAt, &updatedAt)
+	d, err := repo.GetByID(id)
 	if err != nil {
 		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to fetch updated device").Error(), http.StatusInternalServerError)
 		return
 	}
-
-	d.SerialNumber = serialNumber.String
-	d.RackPosition = rackPosition.String
-	d.LocationID = locationID.String
-	d.CreatedAt = createdAt.String
-	d.UpdatedAt = updatedAt.String
 
 	json.NewEncoder(w).Encode(d)
 }
@@ -456,23 +264,6 @@ func BulkPatchDevices(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. Start Transaction
-	tx, err := db.Begin()
-	if err != nil {
-		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to start database transaction").Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Defer Rollback in case of panic or error (if not committed)
-	defer func() {
-		if p := recover(); p != nil {
-			tx.Rollback()
-			panic(p)
-		} else if err != nil {
-			tx.Rollback()
-		}
-	}()
-
 	allowedFields := map[string]bool{
 		"hostname":      true,
 		"ip":            true,
@@ -485,12 +276,12 @@ func BulkPatchDevices(w http.ResponseWriter, r *http.Request) {
 		"location_id":   true,
 	}
 
-	// 3. Loop through updates
+	// Pre-validate
 	for _, item := range updates {
 		id, ok := item["id"]
 		if !ok {
 			pkgutils.JSONError(w, "Missing ID in one of the update items", http.StatusBadRequest)
-			return // Triggers rollback via defer
+			return
 		}
 
 		// VALIDATION
@@ -513,28 +304,12 @@ func BulkPatchDevices(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-
-		// Use Builder
-		query, args, err := utils.BuildUpdateQuery("devices", item, allowedFields, id)
-		if err != nil {
-			// Skip if no valid fields provided for this item
-			continue
-		}
-
-		// Inject updated_at
-		query = strings.Replace(query, " WHERE", ", updated_at=CURRENT_TIMESTAMP WHERE", 1)
-
-		_, err = tx.Exec(query, args...)
-		if err != nil {
-			pkgutils.JSONError(w, pkgutils.ErrorHandler(err, fmt.Sprintf("Error updating device ID %v", id)).Error(), http.StatusInternalServerError)
-			return // Triggers rollback
-		}
 	}
 
-	// 4. Commit Transaction
-	err = tx.Commit()
+	repo := sqlconnect.NewDeviceRepository(db)
+	err := repo.BulkPatch(updates, allowedFields)
 	if err != nil {
-		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to commit transaction").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to bulk update devices").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -557,45 +332,14 @@ func BulkDeleteDevices(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. Start Transaction
-	tx, err := db.Begin()
+	repo := sqlconnect.NewDeviceRepository(db)
+	err := repo.BulkDelete(ids)
 	if err != nil {
-		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to start database transaction").Error(), http.StatusInternalServerError)
-		return
-	}
-
-	defer func() {
-		if p := recover(); p != nil {
-			tx.Rollback()
-			panic(p)
-		} else if err != nil {
-			tx.Rollback()
+		if strings.Contains(err.Error(), "not found") {
+			pkgutils.JSONError(w, err.Error(), http.StatusNotFound)
+		} else {
+			pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to bulk delete devices").Error(), http.StatusInternalServerError)
 		}
-	}()
-
-	// 3. Loop through IDs and Delete
-	query := "DELETE FROM devices WHERE id = $1"
-	for _, id := range ids {
-		res, err := tx.Exec(query, id)
-		if err != nil {
-			pkgutils.JSONError(w, pkgutils.ErrorHandler(err, fmt.Sprintf("Error deleting device ID %v", id)).Error(), http.StatusInternalServerError)
-			return // Triggers rollback
-		}
-
-		rowsAffected, _ := res.RowsAffected()
-		if rowsAffected == 0 {
-			// Option: Fail entire batch if one is missing, OR accept it.
-			// For strict middleware/API consistency, often it's better to fail or warn.
-			// Here we will choose to fail to ensure data consistency as requested by "like BulkPatch".
-			pkgutils.JSONError(w, fmt.Sprintf("Device ID %v not found", id), http.StatusNotFound)
-			return // Triggers rollback
-		}
-	}
-
-	// 4. Commit Transaction
-	err = tx.Commit()
-	if err != nil {
-		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to commit transaction").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -615,15 +359,11 @@ func GetDevicesByLocation(w http.ResponseWriter, r *http.Request) {
 		"location_id": locationID,
 	}
 
-	// 1. Build Query
-	query, args := FilterDevices(filters)
-
-	// 2. Add Sorting (Optional, can support if query params exist)
 	sorts := r.URL.Query()["sortby"]
-	query = AddDeviceSorting(query, sorts)
 
-	// 3. Execute
-	devices, err := SelectDevices(query, args)
+	repo := sqlconnect.NewDeviceRepository(db)
+	devices, err := repo.GetAll(filters, sorts)
+
 	if err != nil {
 		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to fetch devices for location").Error(), http.StatusInternalServerError)
 		return

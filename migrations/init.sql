@@ -49,3 +49,18 @@ CREATE TABLE IF NOT EXISTS interfaces (
     status VARCHAR(20) DEFAULT 'up',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+-- 5. Users Table
+CREATE TABLE IF NOT EXISTS users (
+    id VARCHAR(100) PRIMARY KEY DEFAULT uuid_generate_v4()::text,
+    first_name VARCHAR(100),
+    last_name VARCHAR(100),
+    email VARCHAR(150) UNIQUE NOT NULL,
+    username VARCHAR(100) UNIQUE NOT NULL,
+    password VARCHAR(255) NOT NULL, -- Should store hashed password
+    password_changed_at TIMESTAMP WITH TIME ZONE,
+    user_created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    password_reset_code VARCHAR(100),
+    inactive_status BOOLEAN DEFAULT FALSE,
+    role VARCHAR(50) DEFAULT 'user' -- admin, editor, viewer
+);

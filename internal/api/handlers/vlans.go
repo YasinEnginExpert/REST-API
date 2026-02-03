@@ -6,36 +6,12 @@ import (
 	"fmt"
 	"net/http"
 	"restapi/internal/models"
-	"restapi/internal/utils"
+	"restapi/internal/repositories/sqlconnect"
 	pkgutils "restapi/pkg/utils"
 	"strings"
 
 	"github.com/gorilla/mux"
 )
-
-// GetVLAN handles GET requests for a single VLAN
-func GetVLAN(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	vars := mux.Vars(r)
-	id := vars["id"]
-
-	query := "SELECT id, vlan_id, name, description FROM vlans WHERE id = $1"
-	var v models.VLAN
-	var description sql.NullString
-
-	err := db.QueryRow(query, id).Scan(&v.ID, &v.VlanID, &v.Name, &description)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			pkgutils.JSONError(w, "VLAN not found", http.StatusNotFound)
-		} else {
-			pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to fetch VLAN").Error(), http.StatusInternalServerError)
-		}
-		return
-	}
-	v.Description = description.String
-
-	json.NewEncoder(w).Encode(v)
-}
 
 // GetVLANs handles GET requests for listing VLANs with optional filtering
 func GetVLANs(w http.ResponseWriter, r *http.Request) {
@@ -53,15 +29,10 @@ func GetVLANs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 1. Build Query
-	query, args := FilterVLANs(filters)
-
-	// 2. Add Sorting
 	sorts := r.URL.Query()["sortby"]
-	query = AddVLANSorting(query, sorts)
 
-	// 3. Execute
-	vlans, err := SelectVLANs(query, args)
+	repo := sqlconnect.NewVLANRepository(db)
+	vlans, err := repo.GetAll(filters, sorts)
 	if err != nil {
 		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to fetch VLANs").Error(), http.StatusInternalServerError)
 		return
@@ -80,78 +51,24 @@ func GetVLANs(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-// FilterVLANs builds the SQL query based on filters
-func FilterVLANs(filters map[string]string) (string, []interface{}) {
-	query := "SELECT id, vlan_id, name, description FROM vlans WHERE 1=1"
-	var args []interface{}
-	argId := 1
+// GetVLAN handles GET requests for a single VLAN
+func GetVLAN(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	vars := mux.Vars(r)
+	id := vars["id"]
 
-	allowedParams := map[string]string{
-		"vlan_id":     "vlan_id",
-		"name":        "name",
-		"description": "description",
+	repo := sqlconnect.NewVLANRepository(db)
+	v, err := repo.GetByID(id)
+
+	if err == sql.ErrNoRows {
+		pkgutils.JSONError(w, "VLAN not found", http.StatusNotFound)
+		return
+	} else if err != nil {
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to fetch VLAN").Error(), http.StatusInternalServerError)
+		return
 	}
 
-	for param, value := range filters {
-		if dbField, ok := allowedParams[param]; ok {
-			query += fmt.Sprintf(" AND %s = $%d", dbField, argId)
-			args = append(args, value)
-			argId++
-		}
-	}
-	return query, args
-}
-
-// AddVLANSorting appends ORDER BY clauses
-func AddVLANSorting(query string, sorts []string) string {
-	if len(sorts) == 0 {
-		return query
-	}
-
-	allowedParams := map[string]bool{
-		"vlan_id":     true,
-		"name":        true,
-		"description": true,
-	}
-
-	var orderClauses []string
-	for _, sortParam := range sorts {
-		parts := strings.Split(sortParam, ":")
-		if len(parts) != 2 {
-			continue
-		}
-		field, order := parts[0], parts[1]
-
-		if allowedParams[field] && isValidSortOrder(order) {
-			orderClauses = append(orderClauses, fmt.Sprintf("%s %s", field, order))
-		}
-	}
-
-	if len(orderClauses) > 0 {
-		query += " ORDER BY " + strings.Join(orderClauses, ", ")
-	}
-	return query
-}
-
-// SelectVLANs executes the query
-func SelectVLANs(query string, args []interface{}) ([]models.VLAN, error) {
-	rows, err := db.Query(query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var vlans []models.VLAN
-	for rows.Next() {
-		var v models.VLAN
-		var description sql.NullString
-		if err := rows.Scan(&v.ID, &v.VlanID, &v.Name, &description); err != nil {
-			return nil, err
-		}
-		v.Description = description.String
-		vlans = append(vlans, v)
-	}
-	return vlans, nil
+	json.NewEncoder(w).Encode(v)
 }
 
 // CreateVLAN handles POST requests
@@ -172,19 +89,8 @@ func CreateVLAN(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data, err := utils.GetStructValues(v)
-	if err != nil {
-		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to parse VLAN data").Error(), http.StatusInternalServerError)
-		return
-	}
-
-	query, args, err := utils.GenerateInsertQuery("vlans", data)
-	if err != nil {
-		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to generate insert query").Error(), http.StatusInternalServerError)
-		return
-	}
-
-	err = db.QueryRow(query, args...).Scan(&v.ID)
+	repo := sqlconnect.NewVLANRepository(db)
+	createdVLAN, err := repo.Create(v)
 
 	if err != nil {
 		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to create VLAN").Error(), http.StatusInternalServerError)
@@ -192,7 +98,7 @@ func CreateVLAN(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(v)
+	json.NewEncoder(w).Encode(createdVLAN)
 }
 
 // UpdateVLAN handles PUT requests
@@ -216,19 +122,19 @@ func UpdateVLAN(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query := "UPDATE vlans SET vlan_id=$1, name=$2, description=$3 WHERE id=$4"
-	res, err := db.Exec(query, v.VlanID, v.Name, v.Description, id)
+	v.ID = id
+	repo := sqlconnect.NewVLANRepository(db)
+	rowsAffected, err := repo.Update(v)
+
 	if err != nil {
 		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to update VLAN").Error(), http.StatusInternalServerError)
 		return
 	}
 
-	rows, _ := res.RowsAffected()
-	if rows == 0 {
+	if rowsAffected == 0 {
 		pkgutils.JSONError(w, "VLAN not found", http.StatusNotFound)
 		return
 	}
-	v.ID = id
 	json.NewEncoder(w).Encode(v)
 }
 
@@ -237,14 +143,15 @@ func DeleteVLAN(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
 
-	res, err := db.Exec("DELETE FROM vlans WHERE id=$1", id)
+	repo := sqlconnect.NewVLANRepository(db)
+	rowsAffected, err := repo.Delete(id)
+
 	if err != nil {
 		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to delete VLAN").Error(), http.StatusInternalServerError)
 		return
 	}
 
-	rows, _ := res.RowsAffected()
-	if rows == 0 {
+	if rowsAffected == 0 {
 		pkgutils.JSONError(w, "VLAN not found", http.StatusNotFound)
 		return
 	}
@@ -294,35 +201,25 @@ func PatchVLAN(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	query, args, err := utils.BuildUpdateQuery("vlans", updates, allowedFields, id)
-	if err != nil {
-		pkgutils.JSONError(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	res, err := db.Exec(query, args...)
+	repo := sqlconnect.NewVLANRepository(db)
+	rowsAffected, err := repo.Patch(id, updates, allowedFields)
 	if err != nil {
 		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to patch VLAN").Error(), http.StatusInternalServerError)
 		return
 	}
 
-	rowsAffected, _ := res.RowsAffected()
 	if rowsAffected == 0 {
 		pkgutils.JSONError(w, "VLAN not found", http.StatusNotFound)
 		return
 	}
 
 	// Fetch updated vlan to return
-	var v models.VLAN
-	var description sql.NullString
-	fetchQuery := "SELECT id, vlan_id, name, description FROM vlans WHERE id=$1"
-	err = db.QueryRow(fetchQuery, id).Scan(&v.ID, &v.VlanID, &v.Name, &description)
+	v, err := repo.GetByID(id)
 	if err != nil {
 		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to fetch updated VLAN").Error(), http.StatusInternalServerError)
 		return
 	}
 
-	v.Description = description.String
 	json.NewEncoder(w).Encode(v)
 }
 
@@ -340,21 +237,6 @@ func BulkPatchVLANs(w http.ResponseWriter, r *http.Request) {
 		pkgutils.JSONError(w, "No updates provided", http.StatusBadRequest)
 		return
 	}
-
-	tx, err := db.Begin()
-	if err != nil {
-		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to start database transaction").Error(), http.StatusInternalServerError)
-		return
-	}
-
-	defer func() {
-		if p := recover(); p != nil {
-			tx.Rollback()
-			panic(p)
-		} else if err != nil {
-			tx.Rollback()
-		}
-	}()
 
 	allowedFields := map[string]bool{
 		"vlan_id":     true,
@@ -386,22 +268,12 @@ func BulkPatchVLANs(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-
-		query, args, err := utils.BuildUpdateQuery("vlans", item, allowedFields, id)
-		if err != nil {
-			continue // Skip invalid item updates
-		}
-
-		_, err = tx.Exec(query, args...)
-		if err != nil {
-			pkgutils.JSONError(w, pkgutils.ErrorHandler(err, fmt.Sprintf("Error updating VLAN ID %v", id)).Error(), http.StatusInternalServerError)
-			return
-		}
 	}
 
-	err = tx.Commit()
+	repo := sqlconnect.NewVLANRepository(db)
+	err := repo.BulkPatch(updates, allowedFields)
 	if err != nil {
-		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to commit transaction").Error(), http.StatusInternalServerError)
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to bulk update VLANs").Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -423,39 +295,14 @@ func BulkDeleteVLANs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tx, err := db.Begin()
+	repo := sqlconnect.NewVLANRepository(db)
+	err := repo.BulkDelete(ids)
 	if err != nil {
-		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to start database transaction").Error(), http.StatusInternalServerError)
-		return
-	}
-
-	defer func() {
-		if p := recover(); p != nil {
-			tx.Rollback()
-			panic(p)
-		} else if err != nil {
-			tx.Rollback()
+		if strings.Contains(err.Error(), "not found") {
+			pkgutils.JSONError(w, err.Error(), http.StatusNotFound)
+		} else {
+			pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to bulk delete VLANs").Error(), http.StatusInternalServerError)
 		}
-	}()
-
-	query := "DELETE FROM vlans WHERE id = $1"
-	for _, id := range ids {
-		res, err := tx.Exec(query, id)
-		if err != nil {
-			pkgutils.JSONError(w, pkgutils.ErrorHandler(err, fmt.Sprintf("Error deleting VLAN ID %v", id)).Error(), http.StatusInternalServerError)
-			return
-		}
-
-		rowsAffected, _ := res.RowsAffected()
-		if rowsAffected == 0 {
-			pkgutils.JSONError(w, fmt.Sprintf("VLAN ID %v not found", id), http.StatusNotFound)
-			return
-		}
-	}
-
-	err = tx.Commit()
-	if err != nil {
-		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to commit transaction").Error(), http.StatusInternalServerError)
 		return
 	}
 

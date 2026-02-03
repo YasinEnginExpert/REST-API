@@ -17,6 +17,8 @@ type Interface struct {
 	Type        string `json:"type,omitempty" db:"type"`
 	Description string `json:"description,omitempty" db:"description"`
 	Status      string `json:"status" db:"status"` // e.g., "up", "down"
+	CreatedAt   string `json:"created_at,omitempty" db:"created_at"`
+	UpdatedAt   string `json:"updated_at,omitempty" db:"updated_at"`
 }
 
 // Validate checks for required fields and logical constraints

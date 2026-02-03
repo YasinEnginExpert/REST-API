@@ -1,38 +1,37 @@
-# Binaries
-/bin/
+# Binaries for programs and plugins
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
+
+# Test binary, built with `go test -c`
 *.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
 *.out
 
-# Development
-vendor/
-tmp/
+# Dependency directories (remove the comment below to include it)
+# vendor/
 
-# IDEs
-.idea/
+# Go workspace file
+go.work
+
+# VS Code
 .vscode/
-*.swp
-*.swo
+*.code-workspace
+
+# Environment Variables
+.env
+
+# Build Artifacts
+bin/
+dist/
+
+# Docker / Database Data (Local dev)
+postgres_data/
+pgadmin_data/
 
 # OS Specific
 .DS_Store
 Thumbs.db
-Desktop.ini
-
-# Certificates (Sensitive data)
-certs/*.key
-certs/*.pem
-certs/*.srl
-certs/*.csr
-certs/*.p12
-
-# Logs
-*.log
-
-# Demo Exclusions
-fileignore
-folderignore/

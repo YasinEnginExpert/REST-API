@@ -1,0 +1,266 @@
+[
+  {
+    "id": "6c71b6be-d2ca-4ca9-9534-9bc349d407c4",
+    "name": "Global Tech HQ",
+    "city": "San Francisco",
+    "country": "USA",
+    "address": "Salesforce Tower",
+    "created_at": "2026-02-03T18:56:19.958425Z"
+  },
+  {
+    "id": "0aa10be9-fa85-4cde-8de1-9fe7f13ba9da",
+    "name": "Berlin Gigafactory",
+    "city": "Berlin",
+    "country": "Germany",
+    "address": "Am Tesla Grohmann",
+    "created_at": "2026-02-03T18:56:19.958425Z"
+  },
+  {
+    "id": "0382fa48-042a-4f2d-bef1-4b1892a41e91",
+    "name": "Boston Med Center",
+    "city": "Boston",
+    "country": "USA",
+    "address": "Longwood Med Area",
+    "created_at": "2026-02-03T18:56:19.958425Z"
+  },
+  {
+    "id": "25ebac61-414b-4065-a309-0a08f24e4ce8",
+    "name": "Shanghai Port Hub",
+    "city": "Shanghai",
+    "country": "China",
+    "address": "Yangshan Port",
+    "created_at": "2026-02-03T18:56:19.958425Z"
+  },
+  {
+    "id": "189bf614-df8f-4d89-b6af-14b836dd502a",
+    "name": "Oxford St Flagship",
+    "city": "London",
+    "country": "UK",
+    "address": "Oxford Street",
+    "created_at": "2026-02-03T18:56:19.958425Z"
+  },
+  {
+    "id": "3d794d70-3983-4f80-8597-715590e2a016",
+    "name": "Smart City Control",
+    "city": "Dubai",
+    "country": "UAE",
+    "address": "Museum of the Future",
+    "created_at": "2026-02-03T18:56:19.958425Z"
+  },
+  {
+    "id": "f1ee7f2c-0c8f-4f66-bbf8-6f1fa2041240",
+    "name": "Nordic Energy Hub",
+    "city": "Oslo",
+    "country": "Norway",
+    "address": "Fjord City",
+    "created_at": "2026-02-03T18:56:19.958425Z"
+  },
+  {
+    "id": "2667d7e9-483e-4661-988d-e323e42dba26",
+    "name": "Tech University",
+    "city": "Singapore",
+    "country": "Singapore",
+    "address": "Clementi Road",
+    "created_at": "2026-02-03T18:56:19.958425Z"
+  },
+  {
+    "id": "8622aa16-f319-4a71-8a79-d062bdecfee6",
+    "name": "Deep Space Comms",
+    "city": "Austin",
+    "country": "USA",
+    "address": "SpaceX Boca Chica",
+    "created_at": "2026-02-03T18:56:19.958425Z"
+  },
+  {
+    "id": "722eecde-6682-4308-b063-14908b4bf05f",
+    "name": "5G Edge Core",
+    "city": "Manchester",
+    "country": "UK",
+    "address": "MediaCityUK",
+    "created_at": "2026-02-03T18:56:19.958425Z"
+  },
+  {
+    "id": "7bfa7cef-46c6-4208-af2c-c69024c2dbee",
+    "name": "AI Research Cluster",
+    "city": "Montreal",
+    "country": "Canada",
+    "address": "Mila Institute",
+    "created_at": "2026-02-03T18:56:19.958425Z"
+  },
+  {
+    "id": "bf352bd2-746c-482a-b462-603940ed1c57",
+    "name": "Subsea Cable Station",
+    "city": "Lisbon",
+    "country": "Portugal",
+    "address": "Carcavelos Beach",
+    "created_at": "2026-02-03T18:56:19.958425Z"
+  },
+  {
+    "id": "1e82beb7-a443-4abb-95d6-c3b8bcccd606",
+    "name": "HFT Trading Floor",
+    "city": "Chicago",
+    "country": "USA",
+    "address": "CME Group Data Center",
+    "created_at": "2026-02-03T18:56:19.958425Z"
+  },
+  {
+    "id": "624b2032-e14c-4374-a866-0101e6e4a501",
+    "name": "Istanbul HQ - Maslak",
+    "city": "Istanbul",
+    "country": "Turkey",
+    "address": "Maslak 1453 Plaza, Floor 25",
+    "created_at": "2026-02-03T18:56:19.958425Z"
+  },
+  {
+    "id": "ec1ca2ce-e84e-4fdf-ac13-a9c150843496",
+    "name": "Istanbul DC - Esenyurt",
+    "city": "Istanbul",
+    "country": "Turkey",
+    "address": "Esenyurt Data Center Campus, Hall 2",
+    "created_at": "2026-02-03T18:56:19.958425Z"
+  },
+  {
+    "id": "f52d7678-7598-4bb0-9453-3bd034c7f533",
+    "name": "Istanbul Branch - Kadikoy",
+    "city": "Istanbul",
+    "country": "Turkey",
+    "address": "Bagdat Caddesi No:45",
+    "created_at": "2026-02-03T18:56:19.958425Z"
+  },
+  {
+    "id": "fc64bf3b-7fc5-46d3-960a-7f5cf0f8288f",
+    "name": "Istanbul Backup Site",
+    "city": "Istanbul",
+    "country": "Turkey",
+    "address": "Umraniye Technopark",
+    "created_at": "2026-02-03T18:56:19.958425Z"
+  },
+  {
+    "id": "2f7a872c-c77c-4d74-b665-90440c3aec95",
+    "name": "Ankara Main Office - Sogutozu",
+    "city": "Ankara",
+    "country": "Turkey",
+    "address": "Armada Tower B, Floor 10",
+    "created_at": "2026-02-03T18:56:19.958425Z"
+  },
+  {
+    "id": "535169f9-7e47-429e-9bee-f3cf4340b543",
+    "name": "Ankara DR Site - Golbasi",
+    "city": "Ankara",
+    "country": "Turkey",
+    "address": "Turk Telekom Campus",
+    "created_at": "2026-02-03T18:56:19.958425Z"
+  },
+  {
+    "id": "89e0ee94-9aad-418b-a439-ec896498773f",
+    "name": "Ankara R\u0026D - ODTU",
+    "city": "Ankara",
+    "country": "Turkey",
+    "address": "ODTU Teknokent Gallium Block",
+    "created_at": "2026-02-03T18:56:19.958425Z"
+  },
+  {
+    "id": "dbe090f7-104e-4f13-ab09-989a4dc2639a",
+    "name": "Izmir Regional Office",
+    "city": "Izmir",
+    "country": "Turkey",
+    "address": "Folkart Towers A Block",
+    "created_at": "2026-02-03T18:56:19.958425Z"
+  },
+  {
+    "id": "d7e420cf-7976-4ce3-aeb8-ff21cbb076fc",
+    "name": "Izmir Warehouse - Aliaga",
+    "city": "Izmir",
+    "country": "Turkey",
+    "address": "Aliaga Industrial Zone, Plot 55",
+    "created_at": "2026-02-03T18:56:19.958425Z"
+  },
+  {
+    "id": "63594c5a-c13f-4aa5-8248-6f4531a2b245",
+    "name": "Bursa Factory",
+    "city": "Bursa",
+    "country": "Turkey",
+    "address": "NOSAB Industrial Park",
+    "created_at": "2026-02-03T18:56:19.958425Z"
+  },
+  {
+    "id": "9f0db3b2-f959-4586-a6aa-29992145426f",
+    "name": "Antalya Resort Hub",
+    "city": "Antalya",
+    "country": "Turkey",
+    "address": "Lara Tourism Road",
+    "created_at": "2026-02-03T18:56:19.958425Z"
+  },
+  {
+    "id": "8dd66cb0-c123-4cf1-a7e3-3064d34a1565",
+    "name": "Adana Logistics Center",
+    "city": "Adana",
+    "country": "Turkey",
+    "address": "Incirlik Cargo Hub",
+    "created_at": "2026-02-03T18:56:19.958425Z"
+  },
+  {
+    "id": "183484f3-8382-4635-b3de-266863bd7793",
+    "name": "Trabzon Coastal Hub",
+    "city": "Trabzon",
+    "country": "Turkey",
+    "address": "Black Sea Port Auth",
+    "created_at": "2026-02-03T18:56:19.958425Z"
+  },
+  {
+    "id": "9128af1f-82b8-41c0-9595-bbf8a138b90f",
+    "name": "Gaziantep Trade Office",
+    "city": "Gaziantep",
+    "country": "Turkey",
+    "address": "Organize Sanayi Bolgesi",
+    "created_at": "2026-02-03T18:56:19.958425Z"
+  },
+  {
+    "id": "a67d86d2-2188-4c7c-9f57-3d38ff21aa55",
+    "name": "Kayseri Server Farm",
+    "city": "Kayseri",
+    "country": "Turkey",
+    "address": "Erciyes Tech Valley",
+    "created_at": "2026-02-03T18:56:19.958425Z"
+  },
+  {
+    "id": "7034a125-dda5-437e-8b82-a7cedb53ff75",
+    "name": "Eskisehir Uni Campus",
+    "city": "Eskisehir",
+    "country": "Turkey",
+    "address": "Anadolu Univ. Network Center",
+    "created_at": "2026-02-03T18:56:19.958425Z"
+  },
+  {
+    "id": "9705e15b-f113-46ae-8939-504adafa220d",
+    "name": "Mersin Port Auth",
+    "city": "Mersin",
+    "country": "Turkey",
+    "address": "Port Operations Bldg",
+    "created_at": "2026-02-03T18:56:19.958425Z"
+  },
+  {
+    "id": "e637a756-b82a-4fd5-baf9-3c595401c694",
+    "name": "Konya Data Hub",
+    "city": "Konya",
+    "country": "Turkey",
+    "address": "Selcuklu IT Center",
+    "created_at": "2026-02-03T18:56:19.958425Z"
+  },
+  {
+    "id": "65004c72-ad73-4aaf-87a8-42698e27fc0a",
+    "name": "Diyarbakir Edge",
+    "city": "Diyarbakir",
+    "country": "Turkey",
+    "address": "Kayapinar Office",
+    "created_at": "2026-02-03T18:56:19.958425Z"
+  },
+  {
+    "id": "4ceda2c6-b06a-4a59-8645-8dde7755e705",
+    "name": "Samsun Fiber Node",
+    "city": "Samsun",
+    "country": "Turkey",
+    "address": "Atakum POP Point",
+    "created_at": "2026-02-03T18:56:19.958425Z"
+  }
+]
