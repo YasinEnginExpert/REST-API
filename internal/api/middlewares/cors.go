@@ -3,6 +3,7 @@ package middlewares
 import (
 	"fmt"
 	"net/http"
+	pkgutils "restapi/pkg/utils"
 )
 
 // Allowed origins list
@@ -26,7 +27,7 @@ func Cors(next http.Handler) http.Handler {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 				w.Header().Set("Vary", "Origin") // Important for caching
 			} else {
-				http.Error(w, "Not allowed by CORS", http.StatusForbidden)
+				pkgutils.JSONError(w, "Not allowed by CORS", http.StatusForbidden)
 				return
 			}
 		} else {

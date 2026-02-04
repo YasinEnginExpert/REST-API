@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"restapi/internal/models"
@@ -76,26 +77,28 @@ func GetInterface(w http.ResponseWriter, r *http.Request) {
 // CreateInterface handles POST requests
 func CreateInterface(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	var i models.Interface
+	var netInterface models.Interface
 
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&i); err != nil {
+	if err := decoder.Decode(&netInterface); err != nil {
 		pkgutils.JSONError(w, "Invalid Request Body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	if err := i.Validate(); err != nil {
+	if err := netInterface.Validate(); err != nil {
 		pkgutils.JSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	repo := sqlconnect.NewInterfaceRepository(db)
-	createdInterface, err := repo.Create(i)
+	interfaceRepo := sqlconnect.NewInterfaceRepository(db)
+	createdInterface, err := interfaceRepo.Create(netInterface)
 	if err != nil {
 		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to create interface").Error(), http.StatusInternalServerError)
 		return
 	}
+
+	log.Printf("[INFO] Created Interface: %s (ID: %v)", createdInterface.Name, createdInterface.ID)
 
 	response := struct {
 		Status string           `json:"status"`
@@ -115,22 +118,22 @@ func UpdateInterface(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
 
-	var i models.Interface
+	var netInterface models.Interface
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&i); err != nil {
+	if err := decoder.Decode(&netInterface); err != nil {
 		pkgutils.JSONError(w, "Invalid Request Body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	if err := i.Validate(); err != nil {
+	if err := netInterface.Validate(); err != nil {
 		pkgutils.JSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	i.ID = id
-	repo := sqlconnect.NewInterfaceRepository(db)
-	rowsAffected, err := repo.Update(i)
+	netInterface.ID = id
+	interfaceRepo := sqlconnect.NewInterfaceRepository(db)
+	rowsAffected, err := interfaceRepo.Update(netInterface)
 
 	if err != nil {
 		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to update interface").Error(), http.StatusInternalServerError)
@@ -142,7 +145,9 @@ func UpdateInterface(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	json.NewEncoder(w).Encode(i)
+	log.Printf("[INFO] Updated Interface ID: %s", id)
+
+	json.NewEncoder(w).Encode(netInterface)
 }
 
 // DeleteInterface handles DELETE requests
@@ -151,8 +156,8 @@ func DeleteInterface(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
 
-	repo := sqlconnect.NewInterfaceRepository(db)
-	rowsAffected, err := repo.Delete(id)
+	interfaceRepo := sqlconnect.NewInterfaceRepository(db)
+	rowsAffected, err := interfaceRepo.Delete(id)
 	if err != nil {
 		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to delete interface").Error(), http.StatusInternalServerError)
 		return
@@ -162,6 +167,8 @@ func DeleteInterface(w http.ResponseWriter, r *http.Request) {
 		pkgutils.JSONError(w, "Interface not found", http.StatusNotFound)
 		return
 	}
+
+	log.Printf("[INFO] Deleted Interface ID: %s", id)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -193,30 +200,13 @@ func PatchInterface(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// VALIDATION
-	if val, ok := updates["name"]; ok && strings.TrimSpace(fmt.Sprintf("%v", val)) == "" {
-		pkgutils.JSONError(w, "name cannot be empty", http.StatusBadRequest)
+	if err := validateInterfaceUpdate(id, updates); err != nil {
+		pkgutils.JSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if val, ok := updates["status"]; ok {
-		status := strings.ToLower(fmt.Sprintf("%v", val))
-		if status != "up" && status != "down" && status != "testing" {
-			pkgutils.JSONError(w, "invalid status", http.StatusBadRequest)
-			return
-		}
-	}
-	if val, ok := updates["mac_address"]; ok {
-		mac := fmt.Sprintf("%v", val)
-		if mac != "" { // Allow empty to clear? Assuming Validation logic in model.
-			// If not empty, check valid
-			if _, err := net.ParseMAC(mac); err != nil {
-				pkgutils.JSONError(w, "invalid mac address format", http.StatusBadRequest)
-				return
-			}
-		}
-	}
 
-	repo := sqlconnect.NewInterfaceRepository(db)
-	rowsAffected, err := repo.Patch(id, updates, allowedFields)
+	interfaceRepo := sqlconnect.NewInterfaceRepository(db)
+	rowsAffected, err := interfaceRepo.Patch(id, updates, allowedFields)
 	if err != nil {
 		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to patch interface").Error(), http.StatusInternalServerError)
 		return
@@ -227,14 +217,16 @@ func PatchInterface(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Printf("[INFO] Patched Interface ID: %s", id)
+
 	// Fetch updated
-	i, err := repo.GetByID(id)
+	netInterface, err := interfaceRepo.GetByID(id)
 	if err != nil {
 		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to fetch updated interface").Error(), http.StatusInternalServerError)
 		return
 	}
 
-	json.NewEncoder(w).Encode(i)
+	json.NewEncoder(w).Encode(netInterface)
 }
 
 // BulkPatchInterfaces handles updating multiple interfaces at once
@@ -270,16 +262,9 @@ func BulkPatchInterfaces(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Basic validations
-		if val, ok := item["name"]; ok && strings.TrimSpace(fmt.Sprintf("%v", val)) == "" {
-			pkgutils.JSONError(w, fmt.Sprintf("name cannot be empty for interface %v", id), http.StatusBadRequest)
+		if err := validateInterfaceUpdate(id, item); err != nil {
+			pkgutils.JSONError(w, err.Error(), http.StatusBadRequest)
 			return
-		}
-		if val, ok := item["status"]; ok {
-			status := strings.ToLower(fmt.Sprintf("%v", val))
-			if status != "up" && status != "down" && status != "testing" {
-				pkgutils.JSONError(w, fmt.Sprintf("invalid status for interface %v", id), http.StatusBadRequest)
-				return
-			}
 		}
 	}
 
@@ -308,8 +293,8 @@ func BulkDeleteInterfaces(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	repo := sqlconnect.NewInterfaceRepository(db)
-	err := repo.BulkDelete(ids)
+	interfaceRepo := sqlconnect.NewInterfaceRepository(db)
+	err := interfaceRepo.BulkDelete(ids)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			pkgutils.JSONError(w, err.Error(), http.StatusNotFound)
@@ -319,6 +304,7 @@ func BulkDeleteInterfaces(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Printf("[INFO] Bulk Deleted Interfaces: %v", ids)
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(`{"status": "success", "message": "Bulk delete completed successfully"}`))
 }
@@ -378,4 +364,26 @@ func GetInterfaceCount(w http.ResponseWriter, r *http.Request) {
 		Count:  interfaceCount,
 	}
 	json.NewEncoder(w).Encode(response)
+}
+
+// validateInterfaceUpdate checks if the updates map contains valid data
+func validateInterfaceUpdate(id interface{}, updates map[string]interface{}) error {
+	if val, ok := updates["name"]; ok && strings.TrimSpace(fmt.Sprintf("%v", val)) == "" {
+		return fmt.Errorf("name cannot be empty for interface %v", id)
+	}
+	if val, ok := updates["status"]; ok {
+		status := strings.ToLower(fmt.Sprintf("%v", val))
+		if status != "up" && status != "down" && status != "testing" {
+			return fmt.Errorf("invalid status for interface %v", id)
+		}
+	}
+	if val, ok := updates["mac_address"]; ok {
+		mac := fmt.Sprintf("%v", val)
+		if mac != "" {
+			if _, err := net.ParseMAC(mac); err != nil {
+				return fmt.Errorf("invalid mac address format for interface %v", id)
+			}
+		}
+	}
+	return nil
 }

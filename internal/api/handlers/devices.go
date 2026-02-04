@@ -32,8 +32,8 @@ func GetDevices(w http.ResponseWriter, r *http.Request) {
 
 	sorts := r.URL.Query()["sortby"]
 
-	repo := sqlconnect.NewDeviceRepository(db)
-	devices, err := repo.GetAll(filters, sorts)
+	deviceRepo := sqlconnect.NewDeviceRepository(db)
+	devices, err := deviceRepo.GetAll(filters, sorts)
 	if err != nil {
 		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to fetch devices").Error(), http.StatusInternalServerError)
 		return
@@ -59,8 +59,8 @@ func GetDevice(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
 
-	repo := sqlconnect.NewDeviceRepository(db)
-	d, err := repo.GetByID(id)
+	deviceRepo := sqlconnect.NewDeviceRepository(db)
+	device, err := deviceRepo.GetByID(id)
 
 	if err == sql.ErrNoRows {
 		pkgutils.JSONError(w, "Device not found", http.StatusNotFound)
@@ -70,30 +70,30 @@ func GetDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	json.NewEncoder(w).Encode(d)
+	json.NewEncoder(w).Encode(device)
 }
 
 // CreateDevice handles POST requests to add a new device
 func CreateDevice(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	var d models.Device
+	var device models.Device
 	// Strict JSON decoding to disallow unknown fields
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&d); err != nil {
+	if err := decoder.Decode(&device); err != nil {
 		pkgutils.JSONError(w, "Invalid Request Body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	// Validate device data
-	if err := d.Validate(); err != nil {
+	if err := device.Validate(); err != nil {
 		pkgutils.JSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	repo := sqlconnect.NewDeviceRepository(db)
-	createdDevice, err := repo.Create(d)
+	deviceRepo := sqlconnect.NewDeviceRepository(db)
+	createdDevice, err := deviceRepo.Create(device)
 	if err != nil {
 		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to create device").Error(), http.StatusInternalServerError)
 		return
@@ -118,24 +118,24 @@ func UpdateDevice(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
 
-	var d models.Device
+	var device models.Device
 	// Strict JSON decoding
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&d); err != nil {
+	if err := decoder.Decode(&device); err != nil {
 		pkgutils.JSONError(w, "Invalid Request Body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	// Validate device data
-	if err := d.Validate(); err != nil {
+	if err := device.Validate(); err != nil {
 		pkgutils.JSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	d.ID = id
-	repo := sqlconnect.NewDeviceRepository(db)
-	rowsAffected, err := repo.Update(d)
+	device.ID = id
+	deviceRepo := sqlconnect.NewDeviceRepository(db)
+	rowsAffected, err := deviceRepo.Update(device)
 	if err != nil {
 		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to update device").Error(), http.StatusInternalServerError)
 		return
@@ -146,7 +146,7 @@ func UpdateDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	json.NewEncoder(w).Encode(d)
+	json.NewEncoder(w).Encode(device)
 }
 
 // DeleteDevice handles DELETE requests
@@ -199,35 +199,14 @@ func PatchDevice(w http.ResponseWriter, r *http.Request) {
 		"location_id":   true,
 	}
 
-	// VALIDATION LOGIC start
-	// 1. Check for empty strings on required fields if they are present
-	if val, ok := updates["hostname"]; ok && strings.TrimSpace(fmt.Sprintf("%v", val)) == "" {
-		pkgutils.JSONError(w, "hostname cannot be empty", http.StatusBadRequest)
+	// VALIDATION LOGIC
+	if err := validateDeviceUpdate(id, updates); err != nil {
+		pkgutils.JSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if val, ok := updates["ip"]; ok {
-		ipStr := fmt.Sprintf("%v", val)
-		if strings.TrimSpace(ipStr) == "" {
-			pkgutils.JSONError(w, "ip cannot be empty", http.StatusBadRequest)
-			return
-		}
-		if net.ParseIP(ipStr) == nil {
-			pkgutils.JSONError(w, "invalid ip address format", http.StatusBadRequest)
-			return
-		}
-	}
-	if val, ok := updates["status"]; ok {
-		status := strings.ToLower(fmt.Sprintf("%v", val))
-		validStatuses := map[string]bool{"active": true, "offline": true, "maintenance": true, "provisioning": true}
-		if !validStatuses[status] {
-			pkgutils.JSONError(w, "invalid status", http.StatusBadRequest)
-			return
-		}
-	}
-	// VALIDATION LOGIC end
 
-	repo := sqlconnect.NewDeviceRepository(db)
-	rowsAffected, err := repo.Patch(id, updates, allowedFields)
+	deviceRepo := sqlconnect.NewDeviceRepository(db)
+	rowsAffected, err := deviceRepo.Patch(id, updates, allowedFields)
 	if err != nil {
 		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to patch device").Error(), http.StatusInternalServerError)
 		return
@@ -239,13 +218,13 @@ func PatchDevice(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fetch updated device to return
-	d, err := repo.GetByID(id)
+	device, err := deviceRepo.GetByID(id)
 	if err != nil {
 		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to fetch updated device").Error(), http.StatusInternalServerError)
 		return
 	}
 
-	json.NewEncoder(w).Encode(d)
+	json.NewEncoder(w).Encode(device)
 }
 
 // BulkPatchDevices handles updating multiple devices at once
@@ -285,24 +264,9 @@ func BulkPatchDevices(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// VALIDATION
-		if val, ok := item["hostname"]; ok && strings.TrimSpace(fmt.Sprintf("%v", val)) == "" {
-			pkgutils.JSONError(w, fmt.Sprintf("hostname cannot be empty for device %v", id), http.StatusBadRequest)
+		if err := validateDeviceUpdate(id, item); err != nil {
+			pkgutils.JSONError(w, err.Error(), http.StatusBadRequest)
 			return
-		}
-		if val, ok := item["status"]; ok {
-			status := strings.ToLower(fmt.Sprintf("%v", val))
-			validStatuses := map[string]bool{"active": true, "offline": true, "maintenance": true, "provisioning": true}
-			if !validStatuses[status] {
-				pkgutils.JSONError(w, fmt.Sprintf("invalid status for device %v", id), http.StatusBadRequest)
-				return
-			}
-		}
-		if val, ok := item["ip"]; ok {
-			ipStr := fmt.Sprintf("%v", val)
-			if ipStr != "" && net.ParseIP(ipStr) == nil {
-				pkgutils.JSONError(w, fmt.Sprintf("invalid ip address format for device %v", id), http.StatusBadRequest)
-				return
-			}
 		}
 	}
 
@@ -380,4 +344,29 @@ func GetDevicesByLocation(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(response)
+}
+
+// validateDeviceUpdate checks if the updates map contains valid data
+func validateDeviceUpdate(id interface{}, updates map[string]interface{}) error {
+	// 1. Check for empty strings on required fields if they are present
+	if val, ok := updates["hostname"]; ok && strings.TrimSpace(fmt.Sprintf("%v", val)) == "" {
+		return fmt.Errorf("hostname cannot be empty for device %v", id)
+	}
+	if val, ok := updates["ip"]; ok {
+		ipStr := fmt.Sprintf("%v", val)
+		if strings.TrimSpace(ipStr) == "" {
+			return fmt.Errorf("ip cannot be empty for device %v", id)
+		}
+		if net.ParseIP(ipStr) == nil {
+			return fmt.Errorf("invalid ip address format for device %v", id)
+		}
+	}
+	if val, ok := updates["status"]; ok {
+		status := strings.ToLower(fmt.Sprintf("%v", val))
+		validStatuses := map[string]bool{"active": true, "offline": true, "maintenance": true, "provisioning": true}
+		if !validStatuses[status] {
+			return fmt.Errorf("invalid status for device %v", id)
+		}
+	}
+	return nil
 }

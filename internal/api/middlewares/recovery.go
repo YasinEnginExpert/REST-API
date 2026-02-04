@@ -3,6 +3,7 @@ package middlewares
 import (
 	"log"
 	"net/http"
+	pkgutils "restapi/pkg/utils"
 	"runtime/debug"
 )
 
@@ -11,7 +12,7 @@ func Recovery(next http.Handler) http.Handler {
 		defer func() {
 			if err := recover(); err != nil {
 				log.Printf("[PANIC] %v\nStack: %s", err, string(debug.Stack()))
-				http.Error(w, "500 - Internal Server Error", http.StatusInternalServerError)
+				pkgutils.JSONError(w, "Internal Server Error", http.StatusInternalServerError)
 			}
 		}()
 

@@ -54,9 +54,15 @@ graph TB
         Auto(["Automation Pipeline"])
     end
 
-    subgraph "Security & Ingress Layer"
+    subgraph "Ingress & Middleware Pipeline"
         LB["TLS Termination / Ingress"]
-        MW_Sec["Security Middleware<br/>(Rate Limit, CORS, Headers)"]
+        
+        subgraph "Global Middleware Stack"
+            direction TB
+            MW_Ctx["Context<br/>(RealIP, ReqID)"]
+            MW_Sec["Security<br/>(RateLimit, CORS, Headers)"]
+            MW_Ops["Observability<br/>(Logger, Recovery)"]
+        end
     end
 
     subgraph "Application Layer (Golang Runtime)"
@@ -82,15 +88,17 @@ graph TB
     end
 
     class User,Auto client;
-    class LB,MW_Sec security;
+    class LB,MW_Ctx,MW_Sec,MW_Ops security;
     class Router,Ctrl_Dev,Ctrl_Loc,Ctrl_Int,Utils logic;
     class DB,T_User,T_Dev,T_Loc,T_Int data;
 
     %% Connections
     User -->|HTTPS/REST| LB
     Auto -->|HTTPS/REST| LB
-    LB -->|Cleartext HTTP| MW_Sec
-    MW_Sec -->|Validated Req| Router
+    LB --> MW_Ctx
+    MW_Ctx --> MW_Sec
+    MW_Sec --> MW_Ops
+    MW_Ops -->|Enriched Req| Router
     
     Router --> Ctrl_Dev
     Router --> Ctrl_Loc
@@ -120,6 +128,8 @@ graph TB
 *   **Advanced Filtering**: Granular search capabilities on every resource.
 *   **Standardized API**: Consistent JSON responses and error handling.
 *   **Audit Ready**: Detailed logging of every request's duration and status.
+*   **Full Observability**: Integrated **Request ID** tracing and **Real IP** resolution.
+*   **RFC Compliance**: Strictly standardized JSON error responses (RFC 8259).
 
 ---
 
@@ -399,7 +409,66 @@ These examples demonstrate how the API handles invalid inputs.
 
 ---
 
-## 9. Postman Pro: Automation & Scripting
+## Authentication Guide
+
+The API utilizes a modern, hybrid **JWT (JSON Web Token)** authentication system designed for both programmatic clients (CLI/Mobile) and Web Browsers.
+
+### 1. The Token & Cookie Concept
+We implement a **Dual-Delivery** mechanism for the authentication token:
+
+1.  **The Token (Bearer)**:
+    *   **What is it?**: A signed JWT containing the User ID, Username, and Role.
+    *   **Use Case**: Mobile Apps, CLIs, Postman, and external scripts.
+    *   **How to use**: Send it in the Header: `Authorization: Bearer <your_token>`.
+
+2.  **The Cookie (HttpOnly)**:
+    *   **What is it?**: The exact same JWT, stored in a secure, server-side Cookie.
+    *   **Use Case**: Web Applications (React, Vue, etc.).
+    *   **Security**: The cookie is `HttpOnly` (JavaScript cannot read it), `Secure` (HTTPS only), and `SameSite=Strict` (Prevents CSRF).
+    *   **How to use**: The browser automatically handles this. You don't need to do anything manually!
+
+### 2. Login Example
+**Request:**
+```http
+POST /users/login
+Content-Type: application/json
+
+{
+  "username": "admin",
+  "password": "your_secure_password"
+}
+```
+
+**Response (Success - 200 OK):**
+```json
+{
+  "status": "success",
+  "message": "Login successful",
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+*Note: The response also sets the `Bearer` cookie automatically.*
+
+### 3. Logout Example
+Terminates the server-side session by invalidating the cookie.
+
+**Request:**
+```http
+POST /users/logout
+```
+
+**Response (Success - 200 OK):**
+```json
+{
+    "status": "success",
+    "message": "Logged out"
+}
+```
+*Note: This action clears the `Bearer` cookie by setting its expiration date to the past.*
+
+---
+
+## Postman Pro: Automation & Scripting
 
 Level up your API testing by using Postman's built-in automation features.
 

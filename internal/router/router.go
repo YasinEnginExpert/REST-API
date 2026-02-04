@@ -12,6 +12,8 @@ func Routes() *mux.Router {
 
 	// Create Middleware Stack
 	stack := middlewares.CreateStack(
+		middlewares.RealIP,
+		middlewares.RequestID,
 		middlewares.Recovery,
 		middlewares.RateLimit,
 		middlewares.HPP,

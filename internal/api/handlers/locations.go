@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"restapi/internal/models"
 	"restapi/internal/repositories/sqlconnect"
@@ -54,27 +55,29 @@ func GetLocations(w http.ResponseWriter, r *http.Request) {
 // CreateLocation handles POST requests
 func CreateLocation(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	var l models.Location
+	var location models.Location
 	// Strict JSON decoding
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&l); err != nil {
+	if err := decoder.Decode(&location); err != nil {
 		pkgutils.JSONError(w, "Invalid Request Body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	// Validate location data
-	if err := l.Validate(); err != nil {
+	if err := location.Validate(); err != nil {
 		pkgutils.JSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	repo := sqlconnect.NewLocationRepository(db)
-	createdLocation, err := repo.Create(l)
+	locationRepo := sqlconnect.NewLocationRepository(db)
+	createdLocation, err := locationRepo.Create(location)
 	if err != nil {
 		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to create location").Error(), http.StatusInternalServerError)
 		return
 	}
+
+	log.Printf("[INFO] Created Location: %s (ID: %v)", createdLocation.Name, createdLocation.ID)
 
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(createdLocation)
@@ -106,24 +109,24 @@ func UpdateLocation(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
 
-	var l models.Location
+	var location models.Location
 	// Strict JSON decoding
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&l); err != nil {
+	if err := decoder.Decode(&location); err != nil {
 		pkgutils.JSONError(w, "Invalid Request Body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	// Validate location data
-	if err := l.Validate(); err != nil {
+	if err := location.Validate(); err != nil {
 		pkgutils.JSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	l.ID = id
-	repo := sqlconnect.NewLocationRepository(db)
-	rowsAffected, err := repo.Update(l)
+	location.ID = id
+	locationRepo := sqlconnect.NewLocationRepository(db)
+	rowsAffected, err := locationRepo.Update(location)
 	if err != nil {
 		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to update location").Error(), http.StatusInternalServerError)
 		return
@@ -133,7 +136,10 @@ func UpdateLocation(w http.ResponseWriter, r *http.Request) {
 		pkgutils.JSONError(w, "Location not found", http.StatusNotFound)
 		return
 	}
-	json.NewEncoder(w).Encode(l)
+
+	log.Printf("[INFO] Updated Location ID: %s", id)
+
+	json.NewEncoder(w).Encode(location)
 }
 
 // DeleteLocation handles DELETE requests
@@ -141,8 +147,8 @@ func DeleteLocation(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
 
-	repo := sqlconnect.NewLocationRepository(db)
-	rowsAffected, err := repo.Delete(id)
+	locationRepo := sqlconnect.NewLocationRepository(db)
+	rowsAffected, err := locationRepo.Delete(id)
 	if err != nil {
 		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to delete location").Error(), http.StatusInternalServerError)
 		return
@@ -152,6 +158,8 @@ func DeleteLocation(w http.ResponseWriter, r *http.Request) {
 		pkgutils.JSONError(w, "Location not found", http.StatusNotFound)
 		return
 	}
+
+	log.Printf("[INFO] Deleted Location ID: %s", id)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -175,25 +183,13 @@ func PatchLocation(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// VALIDATION
-	if val, ok := updates["name"]; ok && strings.TrimSpace(fmt.Sprintf("%v", val)) == "" {
-		pkgutils.JSONError(w, "name cannot be empty", http.StatusBadRequest)
-		return
-	}
-	if val, ok := updates["city"]; ok && strings.TrimSpace(fmt.Sprintf("%v", val)) == "" {
-		pkgutils.JSONError(w, "city cannot be empty", http.StatusBadRequest)
-		return
-	}
-	if val, ok := updates["country"]; ok && strings.TrimSpace(fmt.Sprintf("%v", val)) == "" {
-		pkgutils.JSONError(w, "country cannot be empty", http.StatusBadRequest)
-		return
-	}
-	if val, ok := updates["address"]; ok && strings.TrimSpace(fmt.Sprintf("%v", val)) == "" {
-		pkgutils.JSONError(w, "address cannot be empty", http.StatusBadRequest)
+	if err := validateLocationUpdate(id, updates); err != nil {
+		pkgutils.JSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	repo := sqlconnect.NewLocationRepository(db)
-	rowsAffected, err := repo.Patch(id, updates, allowedFields)
+	locationRepo := sqlconnect.NewLocationRepository(db)
+	rowsAffected, err := locationRepo.Patch(id, updates, allowedFields)
 	if err != nil {
 		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to patch location").Error(), http.StatusInternalServerError)
 		return
@@ -204,14 +200,16 @@ func PatchLocation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Printf("[INFO] Patched Location ID: %s", id)
+
 	// Fetch updated location to return
-	l, err := repo.GetByID(id)
+	location, err := locationRepo.GetByID(id)
 	if err != nil {
 		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to fetch updated location").Error(), http.StatusInternalServerError)
 		return
 	}
 
-	json.NewEncoder(w).Encode(l)
+	json.NewEncoder(w).Encode(location)
 }
 
 // BulkPatchLocations handles updating multiple locations at once
@@ -243,16 +241,8 @@ func BulkPatchLocations(w http.ResponseWriter, r *http.Request) {
 			pkgutils.JSONError(w, "Missing ID in one of the update items", http.StatusBadRequest)
 			return
 		}
-		if val, ok := item["name"]; ok && strings.TrimSpace(fmt.Sprintf("%v", val)) == "" {
-			pkgutils.JSONError(w, fmt.Sprintf("name cannot be empty for location %v", id), http.StatusBadRequest)
-			return
-		}
-		if val, ok := item["city"]; ok && strings.TrimSpace(fmt.Sprintf("%v", val)) == "" {
-			pkgutils.JSONError(w, fmt.Sprintf("city cannot be empty for location %v", id), http.StatusBadRequest)
-			return
-		}
-		if val, ok := item["country"]; ok && strings.TrimSpace(fmt.Sprintf("%v", val)) == "" {
-			pkgutils.JSONError(w, fmt.Sprintf("country cannot be empty for location %v", id), http.StatusBadRequest)
+		if err := validateLocationUpdate(id, item); err != nil {
+			pkgutils.JSONError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 	}
@@ -282,8 +272,8 @@ func BulkDeleteLocations(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	repo := sqlconnect.NewLocationRepository(db)
-	err := repo.BulkDelete(ids)
+	locationRepo := sqlconnect.NewLocationRepository(db)
+	err := locationRepo.BulkDelete(ids)
 	if err != nil {
 		// Differentiate not found vs other errors if possible, or just 500
 		if strings.Contains(err.Error(), "not found") {
@@ -294,6 +284,7 @@ func BulkDeleteLocations(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Printf("[INFO] Bulk Deleted Locations: %v", ids)
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(`{"status": "success", "message": "Bulk delete completed successfully"}`))
 }
@@ -318,4 +309,21 @@ func GetDeviceCount(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+// validateLocationUpdate checks if the updates map contains valid data
+func validateLocationUpdate(id interface{}, updates map[string]interface{}) error {
+	if val, ok := updates["name"]; ok && strings.TrimSpace(fmt.Sprintf("%v", val)) == "" {
+		return fmt.Errorf("name cannot be empty for location %v", id)
+	}
+	if val, ok := updates["city"]; ok && strings.TrimSpace(fmt.Sprintf("%v", val)) == "" {
+		return fmt.Errorf("city cannot be empty for location %v", id)
+	}
+	if val, ok := updates["country"]; ok && strings.TrimSpace(fmt.Sprintf("%v", val)) == "" {
+		return fmt.Errorf("country cannot be empty for location %v", id)
+	}
+	if val, ok := updates["address"]; ok && strings.TrimSpace(fmt.Sprintf("%v", val)) == "" {
+		return fmt.Errorf("address cannot be empty for location %v", id)
+	}
+	return nil
 }

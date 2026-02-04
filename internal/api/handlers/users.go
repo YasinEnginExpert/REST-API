@@ -17,8 +17,8 @@ import (
 func GetUsers(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	repo := sqlconnect.NewUserRepository(db)
-	users, err := repo.GetAll()
+	userRepo := sqlconnect.NewUserRepository(db)
+	users, err := userRepo.GetAll()
 	if err != nil {
 		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to fetch users").Error(), http.StatusInternalServerError)
 		return
@@ -31,19 +31,19 @@ func GetUsers(w http.ResponseWriter, r *http.Request) {
 func CreateUser(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	var u models.User
-	if err := json.NewDecoder(r.Body).Decode(&u); err != nil {
+	var user models.User
+	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
 		pkgutils.JSONError(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	if err := u.Validate(); err != nil {
+	if err := user.Validate(); err != nil {
 		pkgutils.JSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	repo := sqlconnect.NewUserRepository(db)
-	createdUser, err := repo.Create(u)
+	userRepo := sqlconnect.NewUserRepository(db)
+	createdUser, err := userRepo.Create(user)
 	if err != nil {
 		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to create user").Error(), http.StatusInternalServerError)
 		return
@@ -62,8 +62,8 @@ func GetUser(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
 
-	repo := sqlconnect.NewUserRepository(db)
-	u, err := repo.GetByID(id)
+	userRepo := sqlconnect.NewUserRepository(db)
+	user, err := userRepo.GetByID(id)
 
 	if err == sql.ErrNoRows {
 		pkgutils.JSONError(w, "User not found", http.StatusNotFound)
@@ -73,7 +73,7 @@ func GetUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	json.NewEncoder(w).Encode(u)
+	json.NewEncoder(w).Encode(user)
 }
 
 // UpdateUser handles PUT requests
@@ -82,15 +82,15 @@ func UpdateUser(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
 
-	var u models.User
-	if err := json.NewDecoder(r.Body).Decode(&u); err != nil {
+	var user models.User
+	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
 		pkgutils.JSONError(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	u.ID = id // Ensure ID is set for update
+	user.ID = id // Ensure ID is set for update
 
-	repo := sqlconnect.NewUserRepository(db)
-	rowsAffected, err := repo.Update(u)
+	userRepo := sqlconnect.NewUserRepository(db)
+	rowsAffected, err := userRepo.Update(user)
 	if err != nil {
 		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to update user").Error(), http.StatusInternalServerError)
 		return
@@ -101,8 +101,8 @@ func UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	u.Password = "" // Ensure password is not echoed back
-	json.NewEncoder(w).Encode(u)
+	user.Password = "" // Ensure password is not echoed back
+	json.NewEncoder(w).Encode(user)
 }
 
 // DeleteUser handles DELETE requests
@@ -110,8 +110,8 @@ func DeleteUser(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
 
-	repo := sqlconnect.NewUserRepository(db)
-	rowsAffected, err := repo.Delete(id)
+	userRepo := sqlconnect.NewUserRepository(db)
+	rowsAffected, err := userRepo.Delete(id)
 	if err != nil {
 		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to delete user").Error(), http.StatusInternalServerError)
 		return
@@ -137,8 +137,8 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	repo := sqlconnect.NewUserRepository(db)
-	user, err := repo.GetByUsername(req.Username)
+	userRepo := sqlconnect.NewUserRepository(db)
+	user, err := userRepo.GetByUsername(req.Username)
 	if err == sql.ErrNoRows {
 		pkgutils.JSONError(w, "Invalid credentials", http.StatusUnauthorized) // Security: don't restrict to "User not found"
 		return
@@ -164,17 +164,19 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Generate JWT Token here
-	// token, err := utils.GenerateToken(user.ID, user.Role)
-	token := "placeholder_jwt_token_abc123"
+	tokenString, err := pkgutils.SignToken(string(user.ID), req.Username, user.Role)
+	if err != nil {
+		pkgutils.JSONError(w, "Could not create login token", http.StatusInternalServerError)
+		return
+	}
 
 	http.SetCookie(w, &http.Cookie{
 		Name:     "Bearer",
-		Value:    token,
+		Value:    tokenString,
 		Path:     "/",
 		MaxAge:   3600 * 24, // 24 hours
 		HttpOnly: true,
-		Secure:   true, // Set to false if testing on localhost without https
+		Secure:   false, // Set to true in production
 		Expires:  time.Now().Add(24 * time.Hour),
 		SameSite: http.SameSiteStrictMode,
 	})
@@ -182,12 +184,23 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	// Return success response
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(fmt.Sprintf(`{"status": "success", "message": "Login successful", "token": "%s"}`, token)))
+	w.Write([]byte(fmt.Sprintf(`{"status": "success", "message": "Login successful", "token": "%s"}`, tokenString)))
 }
 
 func LogoutHandler(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "Bearer",
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   false,
+		Expires:  time.Unix(0, 0),
+		MaxAge:   -1,
+		SameSite: http.SameSiteStrictMode,
+	})
 	// For JWT, logout is usually client-side (delete token).
 	// Server-side invalidation requires a blacklist/Redis, which is future work.
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(`{"status": "success", "message": "Logged out"}`))
 }

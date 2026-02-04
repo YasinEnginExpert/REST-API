@@ -3,6 +3,7 @@ package middlewares
 import (
 	"log"
 	"net/http"
+	pkgutils "restapi/pkg/utils"
 	"sync"
 	"time"
 )
@@ -45,7 +46,7 @@ func (rl *rateLimiter) Middleware(next http.Handler) http.Handler {
 
 		if rl.visitors[visitorIP] > rl.limit {
 			log.Printf("[RateLimit] Too many requests from %s", visitorIP)
-			http.Error(w, "Too many requests", http.StatusTooManyRequests)
+			pkgutils.JSONError(w, "Too many requests", http.StatusTooManyRequests)
 			return
 		}
 

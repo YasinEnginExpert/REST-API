@@ -9,6 +9,7 @@ import (
 type Config struct {
 	Server   ServerConfig
 	Database DatabaseConfig
+	JWT      JWTConfig
 }
 
 type ServerConfig struct {
@@ -26,6 +27,11 @@ type DatabaseConfig struct {
 	SSLMode  string
 }
 
+type JWTConfig struct {
+	Secret     string
+	Expiration string
+}
+
 // Load returns the application configuration populated from environment variables
 func Load() (*Config, error) {
 	return &Config{
@@ -41,6 +47,10 @@ func Load() (*Config, error) {
 			Password: getEnv("DB_PASSWORD", "password"),
 			Name:     getEnv("DB_NAME", "restapi"),
 			SSLMode:  getEnv("DB_SSL", "disable"),
+		},
+		JWT: JWTConfig{
+			Secret:     getEnv("JWT_SECRET", "super-secret-key"),
+			Expiration: getEnv("JWT_EXPIRATION", "24h"),
 		},
 	}, nil
 }

@@ -10,6 +10,7 @@ import (
 	"restapi/internal/config"
 	"restapi/internal/repositories/sqlconnect"
 	"restapi/internal/router"
+	pkgutils "restapi/pkg/utils"
 
 	"golang.org/x/net/http2"
 )
@@ -22,12 +23,18 @@ func main() {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
 
+	// Initialize JWT
+	if err := pkgutils.ConfigureJWT(cfg.JWT.Secret, cfg.JWT.Expiration); err != nil {
+		log.Fatalf("Failed to configure JWT: %v", err)
+	}
+
 	// 2. Connect to default 'postgres' database to check/create target DB
 	// We use the default DSN generated from config
 	defaultDSN := cfg.Database.GetDefaultDSN()
 
 	tempDB, err := sqlconnect.Connect(defaultDSN)
 	if err != nil {
+
 		log.Fatal("Could not connect to postgres instance:", err)
 	}
 
