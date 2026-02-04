@@ -43,74 +43,83 @@ The following diagram illustrates the **Layered Architecture** of the system, de
 
 ```mermaid
 graph TB
-    %% Definitions
-    classDef client fill:#f9f9f9,stroke:#333,stroke-width:2px;
-    classDef security fill:#e1f5fe,stroke:#0277bd,stroke-width:2px;
-    classDef logic fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px;
-    classDef data fill:#fff3e0,stroke:#ef6c00,stroke-width:2px;
+    %% Styles
+    classDef client fill:#f9f9f9,stroke:#333,stroke-width:2px,rx:5;
+    classDef security fill:#e1f5fe,stroke:#0277bd,stroke-width:2px,rx:5;
+    classDef app fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,rx:5;
+    classDef data fill:#fff3e0,stroke:#ef6c00,stroke-width:2px,rx:0;
+    classDef external fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,rx:5;
 
-    subgraph "External Presentation Layer"
-        User(["Human Administrator"])
-        Auto(["Automation Pipeline"])
+    %% --- External World ---
+    subgraph "External Clients"
+        direction TB
+        Admin(["System Administrator (HTTPS)"])
+        Auto(["Automation / CI/CD Pipeline (JSON)"])
     end
 
-    subgraph "Ingress & Middleware Pipeline"
-        LB["TLS Termination / Ingress"]
-        
-        subgraph "Global Middleware Stack"
+    %% --- Container Boundary ---
+    subgraph "Docker Container: restapi-app"
+        direction TB
+
+        Inbound["Ingress Encrypted Port (3000)"]
+
+        %% 1. Middleware Pipeline
+        subgraph "Middleware Chain (Sequential Processing)"
             direction TB
-            MW_Ctx["Context<br/>(RealIP, ReqID)"]
-            MW_Sec["Security<br/>(RateLimit, CORS, Headers)"]
-            MW_Ops["Observability<br/>(Logger, Recovery)"]
+            MW_Net["1. Context & Network<br/>(RealIP, RequestID)"]:::security
+            MW_Protect["2. Guard Rails<br/>(RateLimit, HPP Rejection)"]:::security
+            MW_Hard["3. Security Hardening<br/>(SecHeaders, FetchMetadata, CORS)"]:::security
+            MW_Obs["4. Observability<br/>(Logger, Recovery, X-Response-Time)"]:::security
+            MW_Opt["5. Optimization<br/>(Gzip Compression)"]:::security
         end
-    end
 
-    subgraph "Application Layer (Golang Runtime)"
-        Router["Request Router (Mux)"]
+        %% 2. Router
+        Router("Request Router (Gorilla Mux)"):::app
+
+        %% 3. Control Plane
+        subgraph "Control Plane (Handlers)"
+            H_Auth["Auth Controller<br/>(Login, Password Reset)"]:::app
+            H_Dev["Resource Controller<br/>(Devices, Interfaces)"]:::app
+            H_Net["Network Controller<br/>(VLANs, Locations)"]:::app
+        end
         
-        subgraph "Controller & Business Logic"
-            Ctrl_Dev["Device Controller"]
-            Ctrl_Loc["Location Controller"]
-            Ctrl_Int["Interface Controller"]
-        end
-        
-        Utils["Utility Layer<br/>(SQL Builder, Validator)"]
-    end
-
-    subgraph "Data Persistence Layer"
-        DB[("PostgreSQL Cluster")]
-        subgraph "Domain Model"
-            T_User["Users (Argon2id)"]
-            T_Dev["Devices Table"]
-            T_Loc["Locations Table"]
-            T_Int["Interfaces Table"]
+        %% 4. Data Access
+        subgraph "Data Access Layer"
+            Repo_User["User Repository<br/>(SQL Builder)"]:::app
+            Repo_Dev["Device Repository<br/>(SQL Builder)"]:::app
+            Repo_Net["Network Repository<br/>(SQL Builder)"]:::app
         end
     end
 
-    class User,Auto client;
-    class LB,MW_Ctx,MW_Sec,MW_Ops security;
-    class Router,Ctrl_Dev,Ctrl_Loc,Ctrl_Int,Utils logic;
-    class DB,T_User,T_Dev,T_Loc,T_Int data;
+    %% --- Persistence ---
+    subgraph "Persistence Infrastructure"
+        DB[("PostgreSQL 15 Cluster<br/>(Structured Data)")]:::data
+        Mail["MailHog SMTP Service<br/>(Async Notification)"]:::external
+    end
 
-    %% Connections
-    User -->|HTTPS/REST| LB
-    Auto -->|HTTPS/REST| LB
-    LB --> MW_Ctx
-    MW_Ctx --> MW_Sec
-    MW_Sec --> MW_Ops
-    MW_Ops -->|Enriched Req| Router
+    %% --- Flow Connections ---
+    Admin & Auto -->|TLS 1.2+| Inbound
+    Inbound --> MW_Net
+    MW_Net --> MW_Protect
+    MW_Protect --> MW_Hard
+    MW_Hard --> MW_Obs
+    MW_Obs --> MW_Opt
+    MW_Opt -->|Normalized Request| Router
+
+    Router -->|Route: /users/*| H_Auth
+    Router -->|Route: /devices/*| H_Dev
+    Router -->|Route: /vlans/*| H_Net
+
+    H_Auth --> Repo_User
+    H_Dev --> Repo_Dev
+    H_Net --> Repo_Net
+
+    H_Auth -.->|SMTP/TCP 1025| Mail
     
-    Router --> Ctrl_Dev
-    Router --> Ctrl_Loc
-    Router --> Ctrl_Int
+    Repo_User & Repo_Dev & Repo_Net -->|TCP 5432 (LibPQ)| DB
     
-    Ctrl_Dev --> Utils
-    Ctrl_Loc --> Utils
-    
-    Utils -->|Prepared SQL| DB
-    
-    DB --- T_Dev
-    DB --- T_Loc
+    %% Semantic Class Assignments
+    class Admin,Auto,Inbound client;
 ```
 
 ---
@@ -130,8 +139,45 @@ graph TB
 *   **Audit Ready**: Detailed logging of every request's duration and status.
 *   **Full Observability**: Integrated **Request ID** tracing and **Real IP** resolution.
 *   **RFC Compliance**: Strictly standardized JSON error responses (RFC 8259).
+*   **Pagination**: Efficient data retrieval with `page` and `limit` parameters for all list endpoints.
+*   **Compression**: **Gzip** support for efficient bandwidth usage.
+*   **HPP Protection**: Prevents HTTP Parameter Pollution attacks with strict validation.
+*   **Precision Timing**: Ends every response with a microsecond-precision `X-Response-Time` header.
 
 ---
+
+## Pagination
+
+All list endpoints (`GET /devices`, `GET /users`, etc.) support pagination to handle large datasets efficiently.
+
+### Request Parameters
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `page` | `int` | `1` | The page number to retrieve. |
+| `limit` | `int` | `10` | The number of items per page (Max: 100). |
+
+**Example:**
+`GET https://localhost:3000/devices?page=2&limit=5`
+
+### Response Structure
+
+The response for list endpoints is wrapped in a standard structure containing metadata and the data array.
+
+```json
+{
+  "meta": {
+    "current_page": 2,
+    "limit": 5,
+    "total_pages": 4,
+    "total_count": 20
+  },
+  "data": [
+    { ... },
+    { ... }
+  ]
+}
+```
 
 ## Technology Stack
 
@@ -181,6 +227,52 @@ make reset_db    # The "Nuclear Option": Wipes DB volume and re-seeds data
 make gen-certs   # Generate new SSL certificates
 ```
 
+### Automation & Makefile (Pro Level)
+
+The project includes a robust `Makefile` for advanced automation. Here is how to use it like a pro:
+
+| Command | Description |
+| :--- | :--- |
+| **`make up`** | **Start Everything:** Clean start of API + DB + MailHog + PgAdmin in background. |
+| **`make down`** | **Stop Everything:** Stops all containers and removes networks (safe shutdown). |
+| **`make restart`**| **Reboot:** Sequentially runs `down` then `up`. Useful for quick resets. |
+| **`make logs`** | **Live Logs:** tails the logs of all services in real-time. |
+| **`make shell`** | **Terminal Access:** Opens a shell *inside* the running API container for debugging. |
+| **`make build`** | **Compile:** Builds the Go binary locally to `/bin` (no Docker required). |
+| **`make run`** | **Dev Mode:** Runs `go run main.go` locally (requires local Postgres). |
+| **`make test`** | **Test Suite:** Runs all unit/integration tests with verbose output. |
+| **`make fmt`** | **Code Style:** Formats all Go files using standard `go fmt`. |
+| **`make vet`** | **Linting:** Runs static analysis to find potential bugs (`go vet`). |
+| **`make tidy`** | **Dependencies:** Cleans up `go.mod` (removes unused libs, adds missing ones). |
+| **`make docker-build`**| **Force Build:** Re-builds the Docker image from scratch (pulls latest Alpine/Go). |
+| **`make reset_db`** | **The "Nuclear" Option:** :warning: Destroys the DB volume and re-seeds data. |
+| **`make gen-certs`**| **SSL/TLS:** Generates fresh self-signed certificates for local HTTPS. |
+
+---
+
+## Execution Modes (Choose Your Path)
+
+We provide three distinct ways to run this application, depending on your needs:
+
+### 1. Docker Mode (Recommended)
+**Best for:** Production simulation, ease of use, zero dependency hell.
+*   **How:** `make up`
+*   **Why:** Runs everything (Postgres, MailHog, PgAdmin, API) in isolated containers. No local Go or Postgres installation required.
+*   **Access:** API at `https://localhost:3000` (Mapped from container port 3000).
+
+### 2. Local Development Mode
+**Best for:** Rapid coding, debugging, and testing changes instantly.
+*   **Prerequisite:** You need a local PostgreSQL instance running or use `docker-compose up postgres -d`.
+*   **How:** `make run` (or `go run cmd/api/main.go`)
+*   **Why:** Fastest feedback loop. Uses your machine's resources directly.
+
+### 3. Binary / Production Mode
+**Best for:** High-performance deployment on bare metal.
+*   **How:**
+    1.  `make build` (Generates `bin/api.exe` or `bin/api`)
+    2.  `./bin/api.exe`
+*   **Why:** Runs the optimized, compiled binary. This is how the app runs in real production environments.
+
 ---
 
 ## Quick Reference
@@ -196,125 +288,270 @@ make gen-certs   # Generate new SSL certificates
 
 ## Postman API Guide
 
-### 1. Authentication & Session Control
-Verify credentials and receive an Argon2id-hashed session token.
+### 1. Authentication & Session
+**Login** (Obtain Token & Cookie)
+```http
+POST /users/login
+Content-Type: application/json
 
-| Feature        | Details                                     |
-| :------------- | :------------------------------------------ |
-| **Method**     | `POST`                                      |
-| **URL**        | `https://localhost:3000/users/login`        |
-| **Body (JSON)**| `{"username": "admin", "password": "admin123"}` |
+{
+  "username": "admin",
+  "password": "admin123"
+}
+```
 
----
-
-### 2. Device Inventory (Physical Assets)
-
-#### **A. Basic Listing**
-- **Method**: `GET`
-- **URL**: `https://localhost:3000/devices` (List all)
-- **URL**: `https://localhost:3000/devices/{UUID}` (Specific)
-
-#### **B. Vendor & Status Filtering**
-- **Method**: `GET`
-- **URL**: `https://localhost:3000/devices?vendor=Cisco&status=active`
-- **URL**: `https://localhost:3000/devices?vendor=SpaceX&status=provisioning`
-- **URL**: `https://localhost:3000/devices?vendor=Nokia&status=active` (ISP Core Units)
-
-#### **C. Advanced Sorting (Multi-Field)**
-- **Method**: `GET`
-- **URL**: `https://localhost:3000/devices?sortby=vendor:asc,hostname:desc`
-- **URL**: `https://localhost:3000/devices?sortby=created_at:desc,status:asc`
-- **URL**: `https://localhost:3000/devices?sortby=model:asc,vendor:desc`
-
-#### **D. Industry Scenarios (FinTech, ISP & Space)**
-- **Method**: `GET`
-- **URL**: `https://localhost:3000/devices?model=7130%20Connect` (Arista HFT Switches)
-- **URL**: `https://localhost:3000/devices?model=7750%20SR-12` (Nokia Service Routers)
-- **URL**: `https://localhost:3000/devices?vendor=SpaceX&model=Starlink%20v2` (Satellite Nodes)
-
-#### **E. Onboard / Update Devices**
-- **Method**: `POST` (New Device)
-- **URL**: `{{base_url}}/devices`
-- **Body**: Standard Device JSON.
-- **Method**: `PATCH` (Modify Configuration)
-- **URL**: `{{base_url}}/devices/{UUID}`
-- **Body**: `{"status": "maintenance", "ip": "10.0.0.50"}`
-- **Method**: `PUT` (Full Replace)
-- **URL**: `{{base_url}}/devices/{UUID}`
-- **Body**: Complete **Device JSON** including all required fields.
+**Logout** (Clear Session)
+```http
+POST /users/logout
+```
 
 ---
 
-### 3. Interface Management (Logical & Optical)
+### 2. User Management
+**Update Password**
+```http
+PUT /users/{UUID}/password
+Authorization: Bearer <token>
+Content-Type: application/json
 
-#### **A. High-Speed Link Queries**
-- **Method**: `GET`
-- **URL**: `https://localhost:3000/interfaces?speed=400Gbps` (Terabit Backbone)
-- **URL**: `https://localhost:3000/interfaces?speed=100Gbps&sortby=name:asc`
-- **URL**: `https://localhost:3000/interfaces?speed=10Gbps&status=up` (Branch Uplinks)
+{
+  "new_password": "secure_pass_123"
+}
+```
 
-#### **B. Space & Satellite Ops**
-- **Method**: `GET`
-- **URL**: `https://localhost:3000/interfaces?type=laser` (Inter-Satellite Interconnects)
-- **URL**: `https://localhost:3000/interfaces?description=eCPRI` (5G Fronthaul)
-- **URL**: `https://localhost:3000/interfaces?type=optical&speed=100Gbps` (Subsea Links)
+**Forgot Password**
+```http
+POST /users/forgot-password
+Content-Type: application/json
 
-#### **C. Status & Multi-Sorting**
-- **Method**: `GET`
-- **URL**: `https://localhost:3000/interfaces?status=down&sortby=speed:desc,name:asc`
-- **URL**: `https://localhost:3000/interfaces?type=fiber&status=up`
-- **URL**: `https://localhost:3000/interfaces?status=maintenance&sortby=description:asc`
+{
+  "email": "admin@example.com"
+}
+```
 
-#### **D. Bulk Operations**
-- **Method**: `PATCH`
-- **URL**: `https://localhost:3000/interfaces`
-- **Body**: 
-```json
+---
+
+### 3. Device Inventory
+**List All Devices**
+```http
+GET /devices
+```
+
+**Filter by Vendor & Status**
+```http
+GET /devices?vendor=Cisco&status=active
+```
+
+**Advanced Sort (Multi-Field)**
+```http
+GET /devices?sortby=vendor:asc,hostname:desc
+```
+
+**Create New Device**
+```http
+POST /devices
+Content-Type: application/json
+
+{
+  "hostname": "nyc-core-01",
+  "ip": "10.0.0.1",
+  "model": "ASR 9000",
+  "vendor": "Cisco",
+  "status": "active",
+  "location_id": "uuid-goes-here"
+}
+```
+
+---
+
+### 4. Interface Management
+**Find High-Speed Links**
+```http
+GET /interfaces?speed=100Gbps&status=up
+```
+
+**Search Optical Links**
+```http
+GET /interfaces?type=fiber&sortby=name:asc
+```
+
+**Bulk Update (Shutdown)**
+```http
+PATCH /interfaces
+Content-Type: application/json
+
 [
-  {"id": "IF_UUID_1", "status": "down", "description": "Emergency Lockout"},
-  {"id": "IF_UUID_2", "status": "down", "description": "Maintenance"}
+  { "id": "uuid-1", "status": "down" },
+  { "id": "uuid-2", "status": "down" }
 ]
 ```
 
 ---
 
-### 4. Site & Location Management
+### 5. Site & Location Management
+**List Locations by Country**
+```http
+GET /locations?country=Turkey
+```
 
-#### **A. Global Hierarchy**
-- **Method**: `GET`
-- **URL**: `https://localhost:3000/locations`
-- **URL**: `https://localhost:3000/locations?country=Turkey` (Filter by Country)
+**Get Site Inventory**
+```http
+GET /locations/{LOC_UUID}/devices
+```
 
-#### **B. Site Inventory Traversal**
-- **Method**: `GET`
-- **URL**: `https://localhost:3000/locations/{LOC_UUID}/devices` (Get all hardware at site)
+**Register New Site**
+```http
+POST /locations
+Content-Type: application/json
 
-#### **C. Administrative CRUD**
-- **Method**: `POST` (Register Site)
-- **Body**: `{"name": "Istanbul DC", "city": "Istanbul", "country": "Turkey", "address": "Maslak"}`
-- **Method**: `DELETE` (Decommission Site)
-- **URL**: `https://localhost:3000/locations/{UUID}`
+{
+  "name": "Istanbul DC",
+  "city": "Istanbul",
+  "country": "Turkey",
+  "address": "Maslak 1453"
+}
+```
 
 ---
 
-### 5. Logical Assets (VLANs)
+### 6. Logical Assets (VLANs)
+**Filter by VLAN ID**
+```http
+GET /vlans?vlan_id=100
+```
 
-#### **A. Range & ID Filtering**
-- **Method**: `GET`
-- **URL**: `https://localhost:3000/vlans?vlan_id=80` (Storage SAN)
-- **URL**: `https://localhost:3000/vlans?sortby=vlan_id:asc`
-- **URL**: `https://localhost:3000/vlans?vlan_id=100` (Management)
+**Search by Name**
+```http
+GET /vlans?name=Voice&status=active
+```
 
-#### **B. Functional Search**
-- **Method**: `GET`
-- **URL**: `https://localhost:3000/vlans?name=5G` (Mobile Core Segments)
-- **URL**: `https://localhost:3000/vlans?name=HFT` (Trading Data Segments)
-- **URL**: `https://localhost:3000/vlans?name=GUEST&status=active`
+**Create VLAN**
+```http
+POST /vlans
+Content-Type: application/json
 
-#### **C. Full Multi-Sort**
-- **Method**: `GET`
-- **URL**: `https://localhost:3000/vlans?sortby=name:desc,vlan_id:asc`
-- **URL**: `https://localhost:3000/vlans?sortby=vlan_id:desc,id:asc`
+{
+  "vlan_id": 20,
+  "name": "VoIP-Users",
+  "description": "Voice over IP Segment"
+}
+```
+
+---
+
+### 7. Advanced Usage & Edge Cases
+
+#### **A. System Health Check**
+Verifies that the API server is reachable.
+```http
+GET /
+```
+*Response: "Running API v1"*
+
+#### **B. Pagination in Action**
+Fetch page 2 with 5 items per page.
+```http
+GET /devices?page=2&limit=5
+```
+
+#### **C. Error Handling Scenarios**
+
+**401 Unauthorized** (Missing Token)
+```http
+GET /users
+```
+*Response:*
+```json
+{ "status": "error", "message": "Missing Authorization header" }
+```
+
+**404 Not Found** (Invalid UUID)
+```http
+GET /devices/00000000-0000-0000-0000-000000000000
+```
+*Response:*
+```json
+{ "status": "error", "message": "Device not found" }
+```
+
+**400 Bad Request** (Validation Failure)
+```http
+POST /devices
+Content-Type: application/json
+
+{ "ip": "999.999.999.999" }
+```
+*Response:*
+```json
+{ "status": "error", "message": "Invalid IP address format" }
+```
+
+**403 Forbidden** (Insufficent Permissions)
+```http
+DELETE /locations/uuid
+```
+*Response:*
+```json
+{ "status": "error", "message": "Permission denied" }
+```
+
+**409 Conflict** (Duplicate Resource)
+```http
+POST /users
+```
+*Response:*
+```json
+{ "status": "error", "message": "Email already exists" }
+```
+
+**429 Too Many Requests** (Rate Limit Exceeded)
+*Response (includes Retry-After header):*
+```json
+{ "status": "error", "message": "Too many requests" }
+```
+
+**500 Internal Server Error** (Unexpected Failure)
+*Response:*
+```json
+{ "status": "error", "message": "Internal Server Error" }
+```
+
+#### **D. Security & HPP (HTTP Parameter Pollution)**
+
+**HPP Blocking (Default)**
+Trying to confuse the server with duplicate parameters.
+```http
+GET /devices?page=1&page=500
+```
+*Response:*
+```json
+{ "status": "error", "message": "Duplicate query parameter forbidden: page" }
+```
+
+**HPP Allowed List (e.g. Sorting)**
+Specific parameters like `sortby` are whitelisted for multi-value usage.
+```http
+GET /devices?sortby=model:asc&sortby=vendor:desc
+```
+*Response: Returns devices sorted first by model, then by vendor.*
+
+#### **E. Data Center Asset Tracking**
+
+**Locate by Serial Number**
+```http
+GET /devices?serial_number=SN-99887766
+```
+
+**Find Devices in Specific Rack**
+```http
+GET /devices?rack_position=Rack-42-U10
+```
+
+**Search Interfaces by MAC Address**
+Trace the physical location of a connected client.
+```http
+GET /interfaces?mac_address=00:1A:2B:3C:4D:5E
+```
 
 ---
 
@@ -389,16 +626,29 @@ Follow these scenarios to master every method available in the API.
 This project implements industry-standard security practices and strict data validation to ensure network integrity.
 
 ### 1. Security Overview
-- **Strict Transport Security**: All connections are TLS 1.2+ encrypted.
-- **Rate Limiting**: `60 requests / minute` per IP (Default).
-- **Authentication**: Argon2id for secure password hashing.
-- **XSS Protection**: `X-XSS-Protection: 1; mode=block`.
-- **No Sniff**: `X-Content-Type-Options: nosniff`.
+- **Strict Transport Security (HSTS)**: Enforced TLS 1.2+ encryption (`max-age=31536000`).
+- **Modern CSRF Protection**: Implements **Fetch Metadata** resource isolation to block cross-site state-changing requests.
+- **HPP Protection**: Strict checking for duplicate query parameters (Allow-list based).
+- **Smart Rate Limiting**: IP-based sliding window (`100 req/min`) with port stripping and memory cleanup.
+- **Cross-Origin Isolation**:
+    - `Cross-Origin-Opener-Policy`: same-origin
+    - `Cross-Origin-Resource-Policy`: same-origin
+    - `Cross-Origin-Embedder-Policy`: require-corp
+- **Browser Hardening**:
+    - `X-XSS-Protection`: 1; mode=block
+    - `X-Content-Type-Options`: nosniff
+    - `X-Frame-Options`: DENY (Prevents Clickjacking)
+    - `Referrer-Policy`: strict-origin-when-cross-origin
+    - `Permissions-Policy`: Camera, Mic, Geolocation disabled.
 - **SQL Injection Prevention**: All queries use **Parameterized Queries ($1, $2)**.
+- **Validation**: Strict input validation using struct tags and custom logic.
 
 ### 2. Cookie Management
 The API uses secure, server-side cookies for session management. When you log in via `/users/login`, the server issues a `Bearer` cookie with:
-- **HttpOnly** | **Secure** | **SameSite=Strict** | **MaxAge=24h**
+- **HttpOnly** (No JS access)
+- **Secure** (HTTPS only)
+- **SameSite=Strict** (CSRF protection)
+- **MaxAge=24h**
 
 ### 3. Data Validation Examples (Proving Integrity)
 These examples demonstrate how the API handles invalid inputs.

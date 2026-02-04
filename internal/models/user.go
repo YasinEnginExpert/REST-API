@@ -36,3 +36,13 @@ func (u *User) Validate() error {
 	}
 	return nil
 }
+
+type UpdatePasswordRequest struct {
+	CurrentPassword string `json:"password_updated"`
+	NewPassword     string `json:"new_password"`
+}
+
+type UpdatePasswordResponse struct {
+	Token           string `json:"token"`
+	PasswordUpdated bool   `json:"password_updated"`
+}

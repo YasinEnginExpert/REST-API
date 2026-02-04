@@ -2,6 +2,7 @@ package utils
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -71,9 +72,8 @@ func CheckPassword(password, encodedHash string) (bool, error) {
 	// 2. Gelen şifreyi aynı salt ve parametrelerle yeniden hashle
 	keyToCheck := argon2.IDKey([]byte(password), salt, argon2Time, argon2Memory, argon2Threads, argon2KeyLen)
 
-	// 3. Karşılaştır (Sabit zamanlı karşılaştırma yapılmalı, ancak basitlik için string karşılaştırması yeterli olabilir)
-	// Ancak güvenlik için byte karşılaştırma:
-	if string(keyToCheck) == string(decodedHash) { // Daha güvenli: subtle.ConstantTimeCompare
+	// 3. Karşılaştır (Sabit zamanlı karşılaştırma)
+	if subtle.ConstantTimeCompare(keyToCheck, decodedHash) == 1 {
 		return true, nil
 	}
 

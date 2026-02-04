@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"restapi/internal/config"
 	"restapi/internal/repositories/sqlconnect"
@@ -47,47 +48,47 @@ func main() {
 	defer db.Close()
 
 	// 1. Export Locations
-	fmt.Println("Fetching Locations...")
+	fmt.Println("Exporting Locations...")
 	locRepo := sqlconnect.NewLocationRepository(db)
-	locs, err := locRepo.GetAll(nil, nil)
+	locations, err := locRepo.GetAll(map[string]string{}, []string{}, 1000000, 0)
 	if err != nil {
-		panic(err)
+		log.Fatalf("Error fetching locations: %v", err)
 	}
-	exportToJSON("locations.json", locs)
+	exportToJSON("locations.json", locations)
 
 	// 2. Export Devices
-	fmt.Println("Fetching Devices...")
+	fmt.Println("Exporting Devices...")
 	devRepo := sqlconnect.NewDeviceRepository(db)
-	devs, err := devRepo.GetAll(nil, nil)
+	devices, err := devRepo.GetAll(map[string]string{}, []string{}, 1000000, 0)
 	if err != nil {
-		panic(err)
+		log.Fatalf("Error fetching devices: %v", err)
 	}
-	exportToJSON("devices.json", devs)
+	exportToJSON("devices.json", devices)
 
 	// 3. Export Users
-	fmt.Println("Fetching Users...")
+	fmt.Println("Exporting Users...")
 	userRepo := sqlconnect.NewUserRepository(db)
-	users, err := userRepo.GetAll()
+	users, err := userRepo.GetAll(1000000, 0)
 	if err != nil {
-		panic(err)
+		log.Fatalf("Error fetching users: %v", err)
 	}
 	exportToJSON("users.json", users)
 
 	// 4. Export VLANs
-	fmt.Println("Fetching VLANs...")
+	fmt.Println("Exporting VLANs...")
 	vlanRepo := sqlconnect.NewVLANRepository(db)
-	vlans, err := vlanRepo.GetAll(nil, nil)
+	vlans, err := vlanRepo.GetAll(map[string]string{}, []string{}, 1000000, 0)
 	if err != nil {
-		panic(err)
+		log.Fatalf("Error fetching VLANs: %v", err)
 	}
 	exportToJSON("vlans.json", vlans)
 
 	// 5. Export Interfaces
-	fmt.Println("Fetching Interfaces...")
+	fmt.Println("Exporting Interfaces...")
 	interfaceRepo := sqlconnect.NewInterfaceRepository(db)
-	interfaces, err := interfaceRepo.GetAll(nil, nil)
+	interfaces, err := interfaceRepo.GetAll(map[string]string{}, []string{}, 1000000, 0)
 	if err != nil {
-		panic(err)
+		log.Fatalf("Error fetching interfaces: %v", err)
 	}
 	exportToJSON("interfaces.json", interfaces)
 

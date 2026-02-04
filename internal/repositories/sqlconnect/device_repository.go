@@ -16,9 +16,13 @@ func NewDeviceRepository(db *sql.DB) *DeviceRepository {
 	return &DeviceRepository{DB: db}
 }
 
-func (r *DeviceRepository) GetAll(filters map[string]string, sorts []string) ([]models.Device, error) {
+func (r *DeviceRepository) GetAll(filters map[string]string, sorts []string, limit int, offset int) ([]models.Device, error) {
 	query, args := r.filterDevices(filters)
 	query = r.addDeviceSorting(query, sorts)
+
+	// Add pagination
+	query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
+	args = append(args, limit, offset)
 
 	rows, err := r.DB.Query(query, args...)
 	if err != nil {
@@ -45,6 +49,18 @@ func (r *DeviceRepository) GetAll(filters map[string]string, sorts []string) ([]
 		devices = append(devices, d)
 	}
 	return devices, nil
+}
+
+func (r *DeviceRepository) Count(filters map[string]string) (int, error) {
+	query, args := r.filterDevices(filters)
+	// Replace SELECT ... FROM with SELECT COUNT(*) FROM
+	// Note: We need a robust replacement since the SELECT list is long.
+	// Since filterDevices returns a fixed string structure, this is safe for now.
+	countQuery := strings.Replace(query, "SELECT id, hostname, ip, model, vendor, os, serial_number, status, rack_position, location_id, created_at, updated_at", "SELECT COUNT(*)", 1)
+
+	var count int
+	err := r.DB.QueryRow(countQuery, args...).Scan(&count)
+	return count, err
 }
 
 func (r *DeviceRepository) GetByID(id string) (*models.Device, error) {

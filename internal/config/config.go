@@ -10,6 +10,15 @@ type Config struct {
 	Server   ServerConfig
 	Database DatabaseConfig
 	JWT      JWTConfig
+	SMTP     SMTPConfig
+}
+
+type SMTPConfig struct {
+	Host     string
+	Port     int
+	Username string
+	Password string
+	Sender   string
 }
 
 type ServerConfig struct {
@@ -52,6 +61,13 @@ func Load() (*Config, error) {
 			Secret:     getEnv("JWT_SECRET", "super-secret-key"),
 			Expiration: getEnv("JWT_EXPIRATION", "24h"),
 		},
+		SMTP: SMTPConfig{
+			Host:     getEnv("MAIL_HOST", "mailhog"),
+			Port:     getEnvInt("MAIL_PORT", 1025),
+			Username: getEnv("MAIL_USERNAME", ""),
+			Password: getEnv("MAIL_PASSWORD", ""),
+			Sender:   getEnv("FROM_ADDRESS", "no-reply@netreka.local"),
+		},
 	}, nil
 }
 
@@ -71,6 +87,16 @@ func (db *DatabaseConfig) GetDefaultDSN() string {
 func getEnv(key, fallback string) string {
 	if value, exists := os.LookupEnv(key); exists {
 		return value
+	}
+	return fallback
+}
+
+func getEnvInt(key string, fallback int) int {
+	if value, exists := os.LookupEnv(key); exists {
+		var i int
+		if _, err := fmt.Sscanf(value, "%d", &i); err == nil {
+			return i
+		}
 	}
 	return fallback
 }

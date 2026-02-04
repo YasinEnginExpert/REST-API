@@ -18,11 +18,12 @@ import (
 func GetLocations(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
+	limit, offset, page := pkgutils.ParsePagination(r)
 	filters := make(map[string]string)
 	queryParams := r.URL.Query()
 
 	for k, v := range queryParams {
-		if k == "sortby" {
+		if k == "sortby" || k == "page" || k == "limit" {
 			continue
 		}
 		if len(v) > 0 && v[0] != "" {
@@ -33,20 +34,26 @@ func GetLocations(w http.ResponseWriter, r *http.Request) {
 	sorts := r.URL.Query()["sortby"]
 
 	repo := sqlconnect.NewLocationRepository(db)
-	locations, err := repo.GetAll(filters, sorts)
+	locations, err := repo.GetAll(filters, sorts, limit, offset)
 	if err != nil {
 		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to fetch locations").Error(), http.StatusInternalServerError)
 		return
 	}
 
-	response := struct {
-		Status string            `json:"status"`
-		Count  int               `json:"count"`
-		Data   []models.Location `json:"data"`
-	}{
-		Status: "success",
-		Count:  len(locations),
-		Data:   locations,
+	totalCount, err := repo.Count(filters)
+	if err != nil {
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to count locations").Error(), http.StatusInternalServerError)
+		return
+	}
+
+	response := pkgutils.PaginatedResponse{
+		Meta: pkgutils.PaginationMeta{
+			CurrentPage: page,
+			Limit:       limit,
+			TotalPages:  pkgutils.CalculateTotalPages(totalCount, limit),
+			TotalCount:  totalCount,
+		},
+		Data: locations,
 	}
 
 	json.NewEncoder(w).Encode(response)

@@ -18,11 +18,12 @@ import (
 func GetDevices(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
+	limit, offset, page := pkgutils.ParsePagination(r)
 	filters := make(map[string]string)
 	queryParams := r.URL.Query()
 
 	for k, v := range queryParams {
-		if k == "sortby" {
+		if k == "sortby" || k == "page" || k == "limit" {
 			continue
 		}
 		if len(v) > 0 && v[0] != "" {
@@ -33,20 +34,26 @@ func GetDevices(w http.ResponseWriter, r *http.Request) {
 	sorts := r.URL.Query()["sortby"]
 
 	deviceRepo := sqlconnect.NewDeviceRepository(db)
-	devices, err := deviceRepo.GetAll(filters, sorts)
+	devices, err := deviceRepo.GetAll(filters, sorts, limit, offset)
 	if err != nil {
 		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to fetch devices").Error(), http.StatusInternalServerError)
 		return
 	}
 
-	response := struct {
-		Status string          `json:"status"`
-		Count  int             `json:"count"`
-		Data   []models.Device `json:"data"`
-	}{
-		Status: "success",
-		Count:  len(devices),
-		Data:   devices,
+	totalCount, err := deviceRepo.Count(filters)
+	if err != nil {
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to count devices").Error(), http.StatusInternalServerError)
+		return
+	}
+
+	response := pkgutils.PaginatedResponse{
+		Meta: pkgutils.PaginationMeta{
+			CurrentPage: page,
+			Limit:       limit,
+			TotalPages:  pkgutils.CalculateTotalPages(totalCount, limit),
+			TotalCount:  totalCount,
+		},
+		Data: devices,
 	}
 
 	json.NewEncoder(w).Encode(response)
@@ -318,6 +325,8 @@ func GetDevicesByLocation(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	locationID := vars["id"]
 
+	limit, offset, page := pkgutils.ParsePagination(r)
+
 	// Reuse existing filter logic
 	filters := map[string]string{
 		"location_id": locationID,
@@ -326,21 +335,27 @@ func GetDevicesByLocation(w http.ResponseWriter, r *http.Request) {
 	sorts := r.URL.Query()["sortby"]
 
 	repo := sqlconnect.NewDeviceRepository(db)
-	devices, err := repo.GetAll(filters, sorts)
+	devices, err := repo.GetAll(filters, sorts, limit, offset)
 
 	if err != nil {
 		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to fetch devices for location").Error(), http.StatusInternalServerError)
 		return
 	}
 
-	response := struct {
-		Status string          `json:"status"`
-		Count  int             `json:"count"`
-		Data   []models.Device `json:"data"`
-	}{
-		Status: "success",
-		Count:  len(devices),
-		Data:   devices,
+	totalCount, err := repo.Count(filters)
+	if err != nil {
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to count devices").Error(), http.StatusInternalServerError)
+		return
+	}
+
+	response := pkgutils.PaginatedResponse{
+		Meta: pkgutils.PaginationMeta{
+			CurrentPage: page,
+			Limit:       limit,
+			TotalPages:  pkgutils.CalculateTotalPages(totalCount, limit),
+			TotalCount:  totalCount,
+		},
+		Data: devices,
 	}
 
 	json.NewEncoder(w).Encode(response)

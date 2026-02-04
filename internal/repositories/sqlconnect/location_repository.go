@@ -16,9 +16,13 @@ func NewLocationRepository(db *sql.DB) *LocationRepository {
 	return &LocationRepository{DB: db}
 }
 
-func (r *LocationRepository) GetAll(filters map[string]string, sorts []string) ([]models.Location, error) {
+func (r *LocationRepository) GetAll(filters map[string]string, sorts []string, limit int, offset int) ([]models.Location, error) {
 	query, args := r.filterLocations(filters)
 	query = r.addLocationSorting(query, sorts)
+
+	// Add pagination
+	query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
+	args = append(args, limit, offset)
 
 	rows, err := r.DB.Query(query, args...)
 	if err != nil {
@@ -38,6 +42,15 @@ func (r *LocationRepository) GetAll(filters map[string]string, sorts []string) (
 		locations = append(locations, l)
 	}
 	return locations, nil
+}
+
+func (r *LocationRepository) Count(filters map[string]string) (int, error) {
+	query, args := r.filterLocations(filters)
+	countQuery := strings.Replace(query, "SELECT id, name, city, country, address, created_at FROM locations", "SELECT COUNT(*)", 1)
+
+	var count int
+	err := r.DB.QueryRow(countQuery, args...).Scan(&count)
+	return count, err
 }
 
 func (r *LocationRepository) GetByID(id string) (*models.Location, error) {

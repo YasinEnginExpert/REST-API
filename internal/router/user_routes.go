@@ -19,4 +19,7 @@ func RegisterUserRoutes(router *mux.Router) {
 	users.Handle("/{id}", middlewares.AuthMiddleware(http.HandlerFunc(handlers.UpdateUser))).Methods("PUT")
 	users.Handle("/{id}", middlewares.AuthMiddleware(http.HandlerFunc(handlers.DeleteUser))).Methods("DELETE")
 	users.Handle("/logout", middlewares.AuthMiddleware(http.HandlerFunc(handlers.LogoutHandler))).Methods("POST")
+	users.HandleFunc("/forgot-password", handlers.ForgotPassword).Methods("POST")
+	users.HandleFunc("/reset-password/{resetCode}", handlers.ResetPasswordHandler).Methods("POST")
+	users.Handle("/{id}/password", middlewares.AuthMiddleware(http.HandlerFunc(handlers.UpdatePasswordHandler))).Methods("PUT")
 }

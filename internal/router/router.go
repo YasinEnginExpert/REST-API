@@ -14,13 +14,15 @@ func Routes() *mux.Router {
 	stack := middlewares.CreateStack(
 		middlewares.RealIP,
 		middlewares.RequestID,
-		middlewares.Recovery,
 		middlewares.RateLimit,
-		middlewares.HPP,
+		middlewares.HPP(map[string]bool{
+			"sortby": true, // Allow multi-sort
+			"tags":   true,
+		}),
 		middlewares.SecurityHeaders,
+		middlewares.FetchMetadata, // Modern CSRF check
 		middlewares.Cors,
-		middlewares.ResponseTimeMiddleware,
-		middlewares.Logger,
+		middlewares.MiddlewaresExcludePaths(middlewares.Logger, "/docs", "/favicon.ico"),
 		middlewares.Compression,
 	)
 

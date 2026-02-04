@@ -18,11 +18,12 @@ import (
 func GetVLANs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
+	limit, offset, page := pkgutils.ParsePagination(r)
 	filters := make(map[string]string)
 	queryParams := r.URL.Query()
 
 	for k, v := range queryParams {
-		if k == "sortby" {
+		if k == "sortby" || k == "page" || k == "limit" {
 			continue
 		}
 		if len(v) > 0 && v[0] != "" {
@@ -33,20 +34,26 @@ func GetVLANs(w http.ResponseWriter, r *http.Request) {
 	sorts := r.URL.Query()["sortby"]
 
 	repo := sqlconnect.NewVLANRepository(db)
-	vlans, err := repo.GetAll(filters, sorts)
+	vlans, err := repo.GetAll(filters, sorts, limit, offset)
 	if err != nil {
 		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to fetch VLANs").Error(), http.StatusInternalServerError)
 		return
 	}
 
-	response := struct {
-		Status string        `json:"status"`
-		Count  int           `json:"count"`
-		Data   []models.VLAN `json:"data"`
-	}{
-		Status: "success",
-		Count:  len(vlans),
-		Data:   vlans,
+	totalCount, err := repo.Count(filters)
+	if err != nil {
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to count VLANs").Error(), http.StatusInternalServerError)
+		return
+	}
+
+	response := pkgutils.PaginatedResponse{
+		Meta: pkgutils.PaginationMeta{
+			CurrentPage: page,
+			Limit:       limit,
+			TotalPages:  pkgutils.CalculateTotalPages(totalCount, limit),
+			TotalCount:  totalCount,
+		},
+		Data: vlans,
 	}
 
 	json.NewEncoder(w).Encode(response)
@@ -98,7 +105,7 @@ func CreateVLAN(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[INFO] Created VLAN: %s (ID: %d)", createdVLAN.Name, createdVLAN.ID)
+	log.Printf("[INFO] Created VLAN: %s (ID: %s)", createdVLAN.Name, createdVLAN.ID)
 
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(createdVLAN)

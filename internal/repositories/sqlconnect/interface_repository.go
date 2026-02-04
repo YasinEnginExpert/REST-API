@@ -18,9 +18,13 @@ func NewInterfaceRepository(db *sql.DB) *InterfaceRepository {
 
 // Removed updated_at to match init.sql schema
 
-func (r *InterfaceRepository) GetAll(filters map[string]string, sorts []string) ([]models.Interface, error) {
+func (r *InterfaceRepository) GetAll(filters map[string]string, sorts []string, limit int, offset int) ([]models.Interface, error) {
 	query, args := r.filterInterfaces(filters)
 	query = r.addInterfaceSorting(query, sorts)
+
+	// Add pagination
+	query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
+	args = append(args, limit, offset)
 
 	rows, err := r.DB.Query(query, args...)
 	if err != nil {
@@ -44,6 +48,15 @@ func (r *InterfaceRepository) GetAll(filters map[string]string, sorts []string) 
 		interfaces = append(interfaces, i)
 	}
 	return interfaces, nil
+}
+
+func (r *InterfaceRepository) Count(filters map[string]string) (int, error) {
+	query, args := r.filterInterfaces(filters)
+	countQuery := strings.Replace(query, "SELECT id, name, type, description, mac_address, speed, status, device_id, created_at FROM interfaces", "SELECT COUNT(*)", 1)
+
+	var count int
+	err := r.DB.QueryRow(countQuery, args...).Scan(&count)
+	return count, err
 }
 
 func (r *InterfaceRepository) GetByID(id string) (*models.Interface, error) {

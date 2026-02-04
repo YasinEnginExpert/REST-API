@@ -19,11 +19,12 @@ import (
 func GetInterfaces(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
+	limit, offset, page := pkgutils.ParsePagination(r)
 	filters := make(map[string]string)
 	queryParams := r.URL.Query()
 
 	for k, v := range queryParams {
-		if k == "sortby" {
+		if k == "sortby" || k == "page" || k == "limit" {
 			continue
 		}
 		if len(v) > 0 && v[0] != "" {
@@ -34,20 +35,26 @@ func GetInterfaces(w http.ResponseWriter, r *http.Request) {
 	sorts := r.URL.Query()["sortby"]
 
 	repo := sqlconnect.NewInterfaceRepository(db)
-	interfaces, err := repo.GetAll(filters, sorts)
+	interfaces, err := repo.GetAll(filters, sorts, limit, offset)
 	if err != nil {
 		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to fetch interfaces").Error(), http.StatusInternalServerError)
 		return
 	}
 
-	response := struct {
-		Status string             `json:"status"`
-		Count  int                `json:"count"`
-		Data   []models.Interface `json:"data"`
-	}{
-		Status: "success",
-		Count:  len(interfaces),
-		Data:   interfaces,
+	totalCount, err := repo.Count(filters)
+	if err != nil {
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to count interfaces").Error(), http.StatusInternalServerError)
+		return
+	}
+
+	response := pkgutils.PaginatedResponse{
+		Meta: pkgutils.PaginationMeta{
+			CurrentPage: page,
+			Limit:       limit,
+			TotalPages:  pkgutils.CalculateTotalPages(totalCount, limit),
+			TotalCount:  totalCount,
+		},
+		Data: interfaces,
 	}
 
 	json.NewEncoder(w).Encode(response)
@@ -316,6 +323,8 @@ func GetInterfacesByDevice(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	deviceID := vars["id"]
 
+	limit, offset, page := pkgutils.ParsePagination(r)
+
 	filters := map[string]string{
 		"device_id": deviceID,
 	}
@@ -323,20 +332,26 @@ func GetInterfacesByDevice(w http.ResponseWriter, r *http.Request) {
 	sorts := r.URL.Query()["sortby"]
 
 	repo := sqlconnect.NewInterfaceRepository(db)
-	interfaces, err := repo.GetAll(filters, sorts)
+	interfaces, err := repo.GetAll(filters, sorts, limit, offset)
 	if err != nil {
 		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to fetch interfaces for device").Error(), http.StatusInternalServerError)
 		return
 	}
 
-	response := struct {
-		Status string             `json:"status"`
-		Count  int                `json:"count"`
-		Data   []models.Interface `json:"data"`
-	}{
-		Status: "success",
-		Count:  len(interfaces),
-		Data:   interfaces,
+	totalCount, err := repo.Count(filters)
+	if err != nil {
+		pkgutils.JSONError(w, pkgutils.ErrorHandler(err, "Failed to count interfaces for device").Error(), http.StatusInternalServerError)
+		return
+	}
+
+	response := pkgutils.PaginatedResponse{
+		Meta: pkgutils.PaginationMeta{
+			CurrentPage: page,
+			Limit:       limit,
+			TotalPages:  pkgutils.CalculateTotalPages(totalCount, limit),
+			TotalCount:  totalCount,
+		},
+		Data: interfaces,
 	}
 
 	json.NewEncoder(w).Encode(response)

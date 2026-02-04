@@ -14,9 +14,9 @@ func NewUserRepository(db *sql.DB) *UserRepository {
 	return &UserRepository{DB: db}
 }
 
-func (r *UserRepository) GetAll() ([]models.User, error) {
-	query := "SELECT id, first_name, last_name, email, username, password, user_created_at, inactive_status, role FROM users"
-	rows, err := r.DB.Query(query)
+func (r *UserRepository) GetAll(limit int, offset int) ([]models.User, error) {
+	query := "SELECT id, first_name, last_name, email, username, user_created_at, inactive_status, role FROM users LIMIT $1 OFFSET $2"
+	rows, err := r.DB.Query(query, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -26,7 +26,7 @@ func (r *UserRepository) GetAll() ([]models.User, error) {
 	for rows.Next() {
 		var u models.User
 		var firstName, lastName sql.NullString
-		if err := rows.Scan(&u.ID, &firstName, &lastName, &u.Email, &u.Username, &u.Password, &u.UserCreatedAt, &u.InactiveStatus, &u.Role); err != nil {
+		if err := rows.Scan(&u.ID, &firstName, &lastName, &u.Email, &u.Username, &u.UserCreatedAt, &u.InactiveStatus, &u.Role); err != nil {
 			return nil, err
 		}
 		u.FirstName = firstName.String
@@ -34,6 +34,12 @@ func (r *UserRepository) GetAll() ([]models.User, error) {
 		users = append(users, u)
 	}
 	return users, nil
+}
+
+func (r *UserRepository) Count() (int, error) {
+	var count int
+	err := r.DB.QueryRow("SELECT COUNT(*) FROM users").Scan(&count)
+	return count, err
 }
 
 func (r *UserRepository) Create(u models.User) (*models.User, error) {
@@ -104,4 +110,64 @@ func (r *UserRepository) Delete(id string) (int64, error) {
 		return 0, err
 	}
 	return res.RowsAffected()
+}
+
+// UpdatePassword updates the user's password with a hashed version
+func (r *UserRepository) UpdatePassword(id string, newPassword string) error {
+	hashed, err := pkgutils.HashPassword(newPassword)
+	if err != nil {
+		return err
+	}
+
+	query := "UPDATE users SET password=$1, password_changed_at=CURRENT_TIMESTAMP WHERE id=$2"
+	_, err = r.DB.Exec(query, hashed, id)
+	return err
+}
+
+func (r *UserRepository) GetByEmail(email string) (*models.User, error) {
+	var u models.User
+	var firstName, lastName sql.NullString
+
+	query := "SELECT id, first_name, last_name, email, username, password, user_created_at, inactive_status, role FROM users WHERE email=$1"
+	err := r.DB.QueryRow(query, email).Scan(&u.ID, &firstName, &lastName, &u.Email, &u.Username, &u.Password, &u.UserCreatedAt, &u.InactiveStatus, &u.Role)
+	if err != nil {
+		return nil, err
+	}
+
+	u.FirstName = firstName.String
+	u.LastName = lastName.String
+	return &u, nil
+}
+
+func (r *UserRepository) SetPasswordResetCode(id string, code string) error {
+	query := "UPDATE users SET password_reset_code=$1 WHERE id=$2"
+	_, err := r.DB.Exec(query, code, id)
+	return err
+}
+
+func (r *UserRepository) GetByResetCode(code string) (*models.User, error) {
+	var u models.User
+	var firstName, lastName sql.NullString
+
+	query := "SELECT id, first_name, last_name, email, username, password, user_created_at, inactive_status, role FROM users WHERE password_reset_code=$1"
+	err := r.DB.QueryRow(query, code).Scan(&u.ID, &firstName, &lastName, &u.Email, &u.Username, &u.Password, &u.UserCreatedAt, &u.InactiveStatus, &u.Role)
+	if err != nil {
+		return nil, err
+	}
+
+	u.FirstName = firstName.String
+	u.LastName = lastName.String
+	return &u, nil
+}
+
+// ResetPassword updates the password and clears the reset code atomically
+func (r *UserRepository) ResetPassword(id string, newPassword string) error {
+	hashed, err := pkgutils.HashPassword(newPassword)
+	if err != nil {
+		return err
+	}
+
+	query := "UPDATE users SET password=$1, password_changed_at=CURRENT_TIMESTAMP, password_reset_code=NULL WHERE id=$2"
+	_, err = r.DB.Exec(query, hashed, id)
+	return err
 }

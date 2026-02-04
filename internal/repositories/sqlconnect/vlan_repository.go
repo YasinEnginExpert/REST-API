@@ -16,9 +16,13 @@ func NewVLANRepository(db *sql.DB) *VLANRepository {
 	return &VLANRepository{DB: db}
 }
 
-func (r *VLANRepository) GetAll(filters map[string]string, sorts []string) ([]models.VLAN, error) {
+func (r *VLANRepository) GetAll(filters map[string]string, sorts []string, limit int, offset int) ([]models.VLAN, error) {
 	query, args := r.filterVLANs(filters)
 	query = r.addVLANSorting(query, sorts)
+
+	// Add pagination
+	query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
+	args = append(args, limit, offset)
 
 	rows, err := r.DB.Query(query, args...)
 	if err != nil {
@@ -37,6 +41,15 @@ func (r *VLANRepository) GetAll(filters map[string]string, sorts []string) ([]mo
 		vlans = append(vlans, v)
 	}
 	return vlans, nil
+}
+
+func (r *VLANRepository) Count(filters map[string]string) (int, error) {
+	query, args := r.filterVLANs(filters)
+	countQuery := strings.Replace(query, "SELECT id, vlan_id, name, description FROM vlans", "SELECT COUNT(*)", 1)
+
+	var count int
+	err := r.DB.QueryRow(countQuery, args...).Scan(&count)
+	return count, err
 }
 
 func (r *VLANRepository) GetByID(id string) (*models.VLAN, error) {

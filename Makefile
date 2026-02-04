@@ -1,144 +1,155 @@
 # ==================================================================================== #
-#  REST API PROJECT - THE ULTIMATE BUILD TOOL
-#  "Where robust code meets elegant architecture!"
+#  REST API PROJECT - ULTIMATE MAKEFILE
+#  "Automation at its finest."
 # ==================================================================================== #
 
-# ==============================
-# Detect OS for cross-platform compatibility
-# ==============================
+# --- Variables ---
+BINARY_NAME=bin/api.exe
+MAIN_FILE=cmd/api/main.go
+CERTS_DIR=certs
+COMPOSE_FILE=docker-compose.yml
+DOCKER_IMAGE=restapi-app
+
+# --- OS Detection ---
 ifeq ($(OS),Windows_NT)
     DETECTED_OS := Windows
     RM := del /Q
     RM_DIR := rmdir /S /Q
-    PATH_SEP := \\
     MKDIR := mkdir
 else
     DETECTED_OS := $(shell uname -s)
     RM := rm -f
     RM_DIR := rm -rf
-    PATH_SEP := /
     MKDIR := mkdir -p
 endif
 
-# ==============================
-# Variables
-# ==============================
-BINARY_NAME=bin/api.exe
-MAIN_FILE=cmd/api/main.go
-CERTS_DIR=certs
-COMPOSE_FILE=docker-compose.yml
-
-.PHONY: all build run test clean up down restart gen-certs help reset_db
+.PHONY: all build run test clean up down restart gen-certs help reset_db logs shell fmt vet tidy docker-build
 
 # Default target
-all: build
+all: help
 
-# ==============================
-# Help - The "I don't know what I'm doing" command
-# ==============================
-help:
-	@echo "Available targets:"
-	@echo "  up           - Start Docker containers (DB + Admin)"
-	@echo "  down         - Stop Docker containers"
-	@echo "  restart      - Restart Docker containers"
-	@echo "  build        - Build the Go application binary"
-	@echo "  run          - Run the application directly (go run)"
-	@echo "  start        - Start Docker containers AND run the app"
-	@echo "  test         - Run all tests"
-	@echo "  clean        - Clean build artifacts"
-	@echo "  reset_db     - The nuclear option (Stops containers & wipes DB volume)"
-	@echo "  gen-certs    - Generate development SSL certificates"
+# ==================================================================================== #
+#  HELPERS
+# ==================================================================================== #
+
+help: ## Show this help message
 	@echo ""
-	@echo "Detected OS: $(DETECTED_OS)"
+	@echo "REST API Project Management"
+	@echo "Available targets:"
+	@echo ""
+	@echo "  run             Run the application directly (no docker)"
+	@echo "  build           Build the Go binary"
+	@echo "  test            Run all tests with verbose output"
+	@echo "  clean           Remove build artifacts"
+	@echo "  fmt             Format all Go code"
+	@echo "  vet             Run static analysis (go vet)"
+	@echo "  tidy            Clean up go.mod and go.sum"
+	@echo "  up              Start all services (Postgres, MailHog, API)"
+	@echo "  down            Stop and remove all containers"
+	@echo "  restart         Restart the environment"
+	@echo "  logs            View real-time logs from all containers"
+	@echo "  shell           Open a shell inside the running API container"
+	@echo "  docker-build    Force rebuild the API Docker image"
+	@echo "  reset_db        [Warning] Destroy DB volume and restart"
+	@echo "  gen-certs       Generate self-signed SSL certificates for development"
+	@echo ""
 
-# ==============================
-# Development
-# ==============================
+# ==================================================================================== #
+#  DEVELOPMENT
+# ==================================================================================== #
 
-run: ## Run the application directly
-	@echo "Running application..."
+run: ## Run the application directly (no docker)
+	@echo "${YELLOW}Running application locally...${RESET}"
 	go run $(MAIN_FILE)
 
-build: ## Build the binary
-	@echo "Building binary..."
+build: ## Build the Go binary
+	@echo "${YELLOW}Building binary...${RESET}"
 ifeq ($(OS),Windows_NT)
 	if not exist bin mkdir bin
-	go build -o $(BINARY_NAME) $(MAIN_FILE)
 else
 	$(MKDIR) bin
-	go build -o $(BINARY_NAME) $(MAIN_FILE)
 endif
-	@echo "Build complete: $(BINARY_NAME)"
+	go build -ldflags="-s -w" -o $(BINARY_NAME) $(MAIN_FILE)
+	@echo "${GREEN}Build complete: $(BINARY_NAME)${RESET}"
 
-test: ## Run tests
-	@echo "Running tests..."
+test: ## Run all tests with verbose output
+	@echo "${YELLOW}Running tests...${RESET}"
 	go test ./... -v
 
-clean: ## Clean build artifacts
-	@echo "Cleaning..."
+clean: ## Remove build artifacts
+	@echo "${YELLOW}Cleaning artifacts...${RESET}"
 ifeq ($(OS),Windows_NT)
 	if exist bin $(RM_DIR) bin
 else
 	$(RM_DIR) bin
 endif
-	@echo "Clean complete"
+	@echo "${GREEN}Clean complete.${RESET}"
 
-# ==============================
-# Docker
-# ==============================
+# ==================================================================================== #
+#  CODE QUALITY
+# ==================================================================================== #
 
-up: ## Start Docker containers
-	@echo "Starting Docker containers..."
-ifeq ($(OS),Windows_NT)
+fmt: ## Format all Go code
+	@echo "${YELLOW}Formatting code...${RESET}"
+	go fmt ./...
+
+vet: ## Run static analysis (go vet)
+	@echo "${YELLOW}Running code analysis...${RESET}"
+	go vet ./...
+
+tidy: ## Clean up go.mod and go.sum
+	@echo "${YELLOW}Tidying up modules...${RESET}"
+	go mod tidy
+
+# ==================================================================================== #
+#  DOCKER & INFRASTRUCTURE
+# ==================================================================================== #
+
+up: ## Start all services (Postgres, MailHog, API) in background
+	@echo "${YELLOW}Starting Docker environment...${RESET}"
 	docker-compose -f $(COMPOSE_FILE) up -d
-else
-	docker-compose -f $(COMPOSE_FILE) up -d
-endif
-	@echo "Docker containers started!"
+	@echo "${GREEN}Environment is up! Access API at http://localhost:3000${RESET}"
 
-down: ## Stop Docker containers
-	@echo "Stopping Docker containers..."
+down: ## Stop and remove all containers
+	@echo "${YELLOW}Stopping containers...${RESET}"
 	docker-compose -f $(COMPOSE_FILE) down
-	@echo "Docker containers stopped!"
+	@echo "${GREEN}Environment stopped.${RESET}"
 
-restart: down up ## Restart Docker containers
+restart: down up ## Restart the environment
 
-start: up run ## Start Docker and then run the app
+logs: ## View real-time logs from all containers
+	docker-compose -f $(COMPOSE_FILE) logs -f
 
-reset_db: ## Stop containers AND wipe database volume
-	@echo "Resetting database... (Incoming kaboom!)"
+shell: ## Open a shell inside the running API container
+	docker exec -it restapi-app sh
+
+docker-build: ## Force rebuild the API Docker image
+	@echo "${YELLOW}Rebuilding API Docker image (pulling latest base)...${RESET}"
+	docker build --pull -t $(DOCKER_IMAGE) .
+	@echo "${GREEN}Image built successfully!${RESET}"
+
+reset_db: ## [Warning] Destroy DB volume and restart
+	@echo "${YELLOW}Resetting database (Nuclear Option)...${RESET}"
 	docker-compose -f $(COMPOSE_FILE) down -v
+	@echo "${GREEN}Database volume destroyed.${RESET}"
+	@echo "Run 'make up' to start fresh."
+
+# ==================================================================================== #
+#  SECURITY
+# ==================================================================================== #
+
+gen-certs: ## Generate self-signed SSL certificates for development
+	@echo "${YELLOW}Generating certificates...${RESET}"
 ifeq ($(OS),Windows_NT)
-	@echo "Database volume wiped."
+	if not exist $(CERTS_DIR) mkdir $(CERTS_DIR)
 else
-	@echo "Database volume wiped."
+	$(MKDIR) $(CERTS_DIR)
 endif
-	@echo "Database reset complete. Run 'make start' to re-seed."
-
-# ==============================
-# Security
-# ==============================
-
-gen-certs: ## Generate self-signed certificates
-	@echo "Creating CA..."
 	openssl genrsa -out $(CERTS_DIR)/ca.key 2048
-	openssl req -x509 -new -nodes -key $(CERTS_DIR)/ca.key -sha256 -days 1825 -out $(CERTS_DIR)/ca.pem -subj "//C=TR/ST=Samsun/L=Samsun/O=MyDevRootCA/CN=MyDevRootCA"
+	openssl req -x509 -new -nodes -key $(CERTS_DIR)/ca.key -sha256 -days 1825 -out $(CERTS_DIR)/ca.pem -subj "//C=TR/ST=Turkey/L=Istanbul/O=Netreka Dev/CN=Netreka Root CA"
 	
-	@echo "Creating Server Key and CSR..."
 	openssl genrsa -out $(CERTS_DIR)/key.pem 2048
 	openssl req -new -key $(CERTS_DIR)/key.pem -out $(CERTS_DIR)/server.csr -config $(CERTS_DIR)/openssl.conf
 	
-	@echo "Signing Server Certificate..."
 	openssl x509 -req -in $(CERTS_DIR)/server.csr -CA $(CERTS_DIR)/ca.pem -CAkey $(CERTS_DIR)/ca.key -CAcreateserial -out $(CERTS_DIR)/cert.pem -days 365 -sha256 -extfile $(CERTS_DIR)/openssl.conf -extensions v3_req
-
-	@echo "Creating Client Key and CSR..."
-	openssl genrsa -out $(CERTS_DIR)/client.key 2048
-	openssl req -new -key $(CERTS_DIR)/client.key -out $(CERTS_DIR)/client.csr -subj "//C=TR/ST=Samsun/L=Samsun/O=MyDevClient/CN=MyDevClient"
-
-	@echo "Signing Client Certificate..."
-	openssl x509 -req -in $(CERTS_DIR)/client.csr -CA $(CERTS_DIR)/ca.pem -CAkey $(CERTS_DIR)/ca.key -CAcreateserial -out $(CERTS_DIR)/client.pem -days 365 -sha256 -extfile $(CERTS_DIR)/openssl.conf -extensions v3_req
-
-	@echo "Creating Client PFx for Postman (Password: changeit)..."
-	openssl pkcs12 -export -out $(CERTS_DIR)/client.p12 -inkey $(CERTS_DIR)/client.key -in $(CERTS_DIR)/client.pem -passout pass:changeit
-
-	@echo "Done! Import $(CERTS_DIR)/ca.pem to your Trusted Root Store."
+	@echo "${GREEN}Certificates generated in /$(CERTS_DIR)${RESET}"
