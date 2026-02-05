@@ -35,3 +35,6 @@ pgadmin_data/
 # OS Specific
 .DS_Store
 Thumbs.db
+
+# SSL Certificates
+certs/

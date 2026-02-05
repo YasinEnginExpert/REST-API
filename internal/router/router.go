@@ -20,6 +20,7 @@ func Routes() *mux.Router {
 			"tags":   true,
 		}),
 		middlewares.SecurityHeaders,
+		middlewares.SanitizeMiddleware,
 		middlewares.FetchMetadata, // Modern CSRF check
 		middlewares.Cors,
 		middlewares.MiddlewaresExcludePaths(middlewares.Logger, "/docs", "/favicon.ico"),

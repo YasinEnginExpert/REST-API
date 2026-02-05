@@ -23,7 +23,7 @@ else
     MKDIR := mkdir -p
 endif
 
-.PHONY: all build run test clean up down restart gen-certs help reset_db logs shell fmt vet tidy docker-build
+.PHONY: all build run test clean up down restart gen-certs help reset_db logs shell fmt vet tidy docker-build start
 
 # Default target
 all: help
@@ -50,6 +50,7 @@ help: ## Show this help message
 	@echo "  logs            View real-time logs from all containers"
 	@echo "  shell           Open a shell inside the running API container"
 	@echo "  docker-build    Force rebuild the API Docker image"
+	@echo "  start           One-liner to start everything (UP + Auto-seed)"
 	@echo "  reset_db        [Warning] Destroy DB volume and restart"
 	@echo "  gen-certs       Generate self-signed SSL certificates for development"
 	@echo ""
@@ -109,6 +110,8 @@ up: ## Start all services (Postgres, MailHog, API) in background
 	@echo "${YELLOW}Starting Docker environment...${RESET}"
 	docker-compose -f $(COMPOSE_FILE) up -d
 	@echo "${GREEN}Environment is up! Access API at http://localhost:3000${RESET}"
+
+start: up ## Alias for 'make up'
 
 down: ## Stop and remove all containers
 	@echo "${YELLOW}Stopping containers...${RESET}"

@@ -116,7 +116,7 @@ graph TB
 
     H_Auth -.->|SMTP/TCP 1025| Mail
     
-    Repo_User & Repo_Dev & Repo_Net -->|TCP 5432 (LibPQ)| DB
+    Repo_User & Repo_Dev & Repo_Net -->|"TCP 5432 (LibPQ)"| DB
     
     %% Semantic Class Assignments
     class Admin,Auto,Inbound client;
@@ -344,7 +344,7 @@ GET /devices?vendor=Cisco&status=active
 
 **Advanced Sort (Multi-Field)**
 ```http
-GET /devices?sortby=vendor:asc,hostname:desc
+GET /devices?sortby=vendor:asc&sortby=hostname:desc
 ```
 
 **Create New Device**
@@ -357,10 +357,27 @@ Content-Type: application/json
   "ip": "10.0.0.1",
   "model": "ASR 9000",
   "vendor": "Cisco",
+  "os": "IOS-XR",
   "status": "active",
   "location_id": "uuid-goes-here"
 }
 ```
+
+**Bulk Delete Devices**
+```http
+DELETE /devices
+Authorization: Bearer <token>
+Content-Type: application/json
+
+["uuid-1", "uuid-2", "uuid-3"]
+```
+
+#### Sub-Resources & Utilities
+| Requirement | Method | URL Path |
+| :--- | :--- | :--- |
+| **Get Device Interfaces** | `GET` | `/devices/{id}/interfaces` |
+| **Quick Interface Count** | `GET` | `/devices/{id}/interfacecount` |
+| **Partial Update (Bulk)** | `PATCH` | `/devices` (Batch Array) |
 
 ---
 
@@ -386,17 +403,26 @@ Content-Type: application/json
 ]
 ```
 
+**Bulk Delete Interfaces**
+```http
+DELETE /interfaces
+Authorization: Bearer <token>
+Content-Type: application/json
+
+["uuid-1", "uuid-2"]
+```
+
+#### Sub-Resources & Utilities
+| Requirement | Method | URL Path |
+| :--- | :--- | :--- |
+| **Batch Status Update** | `PATCH` | `/interfaces` (Bulk Patch) |
+
 ---
 
 ### 5. Site & Location Management
 **List Locations by Country**
 ```http
 GET /locations?country=Turkey
-```
-
-**Get Site Inventory**
-```http
-GET /locations/{LOC_UUID}/devices
 ```
 
 **Register New Site**
@@ -411,6 +437,14 @@ Content-Type: application/json
   "address": "Maslak 1453"
 }
 ```
+
+#### Sub-Resources & Utilities
+| Requirement | Method | URL Path |
+| :--- | :--- | :--- |
+| **Get Site Inventory** | `GET` | `/locations/{id}/devices` |
+| **Quick Device Count** | `GET` | `/locations/{id}/devicescount` |
+| **Batch Update Sites** | `PATCH` | `/locations` (Bulk Patch) |
+| **Batch Remove Sites** | `DELETE` | `/locations` (Array of IDs) |
 
 ---
 
@@ -436,6 +470,12 @@ Content-Type: application/json
   "description": "Voice over IP Segment"
 }
 ```
+
+#### Sub-Resources & Utilities
+| Requirement | Method | URL Path |
+| :--- | :--- | :--- |
+| **Batch Update VLANs** | `PATCH` | `/vlans` (Bulk Patch) |
+| **Batch Remove VLANs** | `DELETE` | `/vlans` (Array of IDs) |
 
 ---
 
@@ -473,6 +513,25 @@ GET /devices/00000000-0000-0000-0000-000000000000
 ```json
 { "status": "error", "message": "Device not found" }
 ```
+
+### Standard Error Format
+All errors follow a unified JSON structure for easy parsing by frontend clients:
+```json
+{
+  "status": "error",
+  "message": "Human readable reason for failure"
+}
+```
+| Status Code | Meaning |
+| :--- | :--- |
+| **400** | **Bad Request**: Validation failed or missing fields. |
+| **401** | **Unauthorized**: Invalid or missing JWT/Cookie. |
+| **403** | **Forbidden**: RBAC restriction or cross-site attack. |
+| **404** | **Not Found**: Resource does not exist. |
+| **429** | **Too Many Requests**: Rate limit exceeded. |
+| **500** | **Server Error**: Database or internal logic failure. |
+
+---
 
 **400 Bad Request** (Validation Failure)
 ```http
@@ -563,9 +622,9 @@ GET /interfaces?mac_address=00:1A:2B:3C:4D:5E
 | **Get Specific User Settings**     | `GET`  | `/users/{UUID}`                                                                       |
 | **Newest Inventory First**         | `GET`  | `/devices?sortby=created_at:desc`                                                    |
 | **Backbone Interface Sort**        | `GET`  | `/interfaces?speed=400Gbps&sortby=name:asc`                                           |
-| **Down Status (Fiber Only)**       | `GET`  | `/interfaces?type=fiber&status=down&sortby=speed:desc,name:asc`                       |
+| **Down Status (Fiber Only)**       | `GET`  | `/interfaces?type=fiber&status=down&sortby=speed:desc&sortby=name:asc`                |
 | **Inactive Accounts Search**       | `GET`  | `/users?inactive_status=true`                                                         |
-| **Turkey Hub Multi-Sort**          | `GET`  | `/locations?country=Turkey&sortby=city:asc,name:desc`                                 |
+| **Turkey Hub Multi-Sort**          | `GET`  | `/locations?country=Turkey&sortby=city:asc&sortby=name:desc`                          |
 | **FinTech VLANs (High ID First)**  | `GET`  | `/vlans?name=HFT&sortby=vlan_id:desc`                                                 |
 | **Bulk Interface Shutdown**        | `PATCH`| `/interfaces` (With JSON Body Array)                                                  |
 | **Total Inventory Purge (Nuclear)**| `DEL`  | `/locations/{UUID}` (Cascade delete enabled in DB)                                    |
@@ -573,51 +632,158 @@ GET /interfaces?mac_address=00:1A:2B:3C:4D:5E
 
 ---
 
+---
+
 ## Tutorial: Full Entity Lifecycle (Step-by-Step)
 
-Follow these scenarios to master every method available in the API.
+Follow these scenarios to master every method available in the API. Each scenario walks you through a real-world network engineering workflow.
 
 ### A. Device Lifecycle (Scenario: ISP Border Router)
 
-1.  **POST (Create)**: Register a new Nokia Service Router.
-    - **URL**: `https://localhost:3000/devices`
-    - **Body**: `{"hostname": "br-ist-core-01", "ip": "100.100.100.1", "model": "7750 SR-1s", "vendor": "Nokia", "os": "SR OS", "status": "active", "location_id": "{LOC_UUID}"}`
-2.  **GET (Verify)**: List all Nokia devices to find your new router.
-    - **URL**: `https://localhost:3000/devices?vendor=Nokia&sortby=hostname:asc`
-3.  **PATCH (Update)**: Set the router to maintenance mode for a firmware upgrade.
-    - **URL**: `https://localhost:3000/devices/{UUID}`
-    - **Body**: `{"status": "maintenance"}`
-4.  **PUT (Full Replace)**: Transition to a new hardware model and IP while keeping the same UUID.
-    - **URL**: `https://localhost:3000/devices/{UUID}`
-    - **Body**: `{"hostname": "br-ist-core-01-v2", "ip": "100.100.100.2", "model": "7750 SR-12", "vendor": "Nokia", "os": "SR OS v22", "status": "active"}`
-5.  **DELETE (Remove)**: Decommission the legacy router.
-    - **URL**: `https://localhost:3000/devices/{UUID}`
+> [!TIP]
+> This workflow demonstrates how to provision, monitor, and decommission a core network asset.
+
+#### Step 1: Create
+**POST (Create)**: Register a new Nokia Service Router.
+```http
+POST /devices
+```
+```json
+{
+  "hostname": "br-ist-core-01", 
+  "ip": "100.100.100.1", 
+  "model": "7750 SR-1s", 
+  "vendor": "Nokia", 
+  "os": "SR OS", 
+  "status": "active", 
+  "location_id": "{LOC_UUID}"
+}
+```
+
+#### Step 2: Verify
+**GET (Verify)**: List all Nokia devices to find your new router.
+```http
+GET /devices?vendor=Nokia&sortby=hostname:asc
+```
+
+#### Step 3: Update (Partial)
+**PATCH (Update)**: Set the router to maintenance mode for a firmware upgrade.
+```http
+PATCH /devices/{UUID}
+```
+```json
+{"status": "maintenance"}
+```
+
+#### Step 4: Replace (Full)
+**PUT (Full Replace)**: Transition to a new hardware model and IP while keeping the same UUID.
+```http
+PUT /devices/{UUID}
+```
+```json
+{
+  "hostname": "br-ist-core-01-v2", 
+  "ip": "100.100.100.2", 
+  "model": "7750 SR-12", 
+  "vendor": "Nokia", 
+  "os": "SR OS v22", 
+  "status": "active"
+}
+```
+
+#### Step 5: Remove
+**DELETE (Remove)**: Decommission the legacy router.
+```http
+DELETE /devices/{UUID}
+```
+
+---
 
 ### B. Interface Operations (Scenario: 400Gbps Backbone Link)
 
-1.  **POST (Provision)**: Create the primary 400G optical port.
-    - **URL**: `https://localhost:3000/interfaces`
-    - **Body**: `{"device_id": "{DEV_UUID}", "name": "400GE1/1/1", "description": "Inter-AS Link", "type": "fiber", "speed": "400Gbps", "status": "up"}`
-2.  **GET (Audit)**: Search for all terabit-scale interfaces.
-    - **URL**: `https://localhost:3000/interfaces?speed=400Gbps&sortby=status:asc`
-3.  **PATCH (Bulk)**: Shutdown multiple backbone links for emergency fiber repair.
-    - **URL**: `https://localhost:3000/interfaces`
-    - **Body**: `[{"id": "{IF_UUID_1}", "status": "down"}, {"id": "{IF_UUID_2}", "status": "down"}]`
-4.  **DELETE**: Clean up an incorrectly provisioned test port.
-    - **URL**: `https://localhost:3000/interfaces/{UUID}`
+> [!NOTE]
+> Managing physical connectivity at scale using bulk operations and granular filtering.
+
+#### Step 1: Provision
+**POST (Provision)**: Create the primary 400G optical port.
+```http
+POST /interfaces
+```
+```json
+{
+  "device_id": "{DEV_UUID}", 
+  "name": "400GE1/1/1", 
+  "description": "Inter-AS Link", 
+  "type": "fiber", 
+  "speed": "400Gbps", 
+  "status": "up"
+}
+```
+
+#### Step 2: Audit
+**GET (Audit)**: Search for all terabit-scale interfaces.
+```http
+GET /interfaces?speed=400Gbps&sortby=status:asc
+```
+
+#### Step 3: Bulk Action
+**PATCH (Bulk)**: Shutdown multiple backbone links for emergency fiber repair.
+```http
+PATCH /interfaces
+```
+```json
+[
+  { "id": "{IF_UUID_1}", "status": "down" }, 
+  { "id": "{IF_UUID_2}", "status": "down" }
+]
+```
+
+#### Step 4: Clean
+**DELETE**: Clean up an incorrectly provisioned test port.
+```http
+DELETE /interfaces/{UUID}
+```
+
+---
 
 ### C. VLAN Provisioning (Scenario: Low-Latency HFT Segment)
 
-1.  **POST**: Define a new ultra-low latency multicast VLAN.
-    - **URL**: `https://localhost:3000/vlans`
-    - **Body**: `{"vlan_id": 105, "name": "NY4-Mcast-Feed", "description": "NYSE Data Feed"}`
-2.  **GET**: Verify the VLAN exists and check its sort position.
-    - **URL**: `https://localhost:3000/vlans?sortby=vlan_id:asc&name=NY4`
-3.  **PATCH**: Update description to include specific sub-feeds.
-    - **URL**: `https://localhost:3000/vlans/{UUID}`
-    - **Body**: `{"description": "NYSE Data Feed (Equinix NY4 Hub)"}`
-4.  **DELETE**: Remove VLAN after the market data session ends.
-    - **URL**: `https://localhost:3000/vlans/{UUID}`
+> [!IMPORTANT]
+> Logical asset management for high-frequency trading segments.
+
+#### Step 1: Define
+**POST**: Define a new ultra-low latency multicast VLAN.
+```http
+POST /vlans
+```
+```json
+{
+  "vlan_id": 105, 
+  "name": "NY4-Mcast-Feed", 
+  "description": "NYSE Data Feed"
+}
+```
+
+#### Step 2: Search
+**GET**: Verify the VLAN exists and check its sort position.
+```http
+GET /vlans?sortby=vlan_id:asc&name=NY4
+```
+
+#### Step 3: Modify
+**PATCH**: Update description to include specific sub-feeds.
+```http
+PATCH /vlans/{UUID}
+```
+```json
+{"description": "NYSE Data Feed (Equinix NY4 Hub)"}
+```
+
+#### Step 4: Retire
+**DELETE**: Remove VLAN after the market data session ends.
+```http
+DELETE /vlans/{UUID}
+```
 
 ---
 
@@ -641,16 +807,61 @@ This project implements industry-standard security practices and strict data val
     - `Referrer-Policy`: strict-origin-when-cross-origin
     - `Permissions-Policy`: Camera, Mic, Geolocation disabled.
 - **SQL Injection Prevention**: All queries use **Parameterized Queries ($1, $2)**.
-- **Validation**: Strict input validation using struct tags and custom logic.
+- **XSS Protection**: Integrated `bluemonday` sanitization for all JSON and Form-data inputs.
+- **RBAC (Role-Based Access Control)**: Granular permission system (Admin vs. User vs. Owner).
+- **Bulk Operations**: Batch Patch/Delete support for inventory resources (Devices, Interfaces, Locations, VLANs).
 
-### 2. Cookie Management
+### 2. Role-Based Access Control (RBAC)
+
+The API implements a robust RBAC system to ensure data security. Roles are embedded in the JWT and checked via middleware.
+
+| Role | Access Level | Description |
+| :--- | :--- | :--- |
+| **Admin** | Full Access | Can create, update, delete, and list all resources. |
+| **User** | Read-Only / Limited | Can list resources (Devices, Locations) but cannot modify them. |
+| **Owner** | Resource-Specific | Can only update/delete resources they own (e.g., their own user profile). |
+
+> [!IMPORTANT]
+> **Owner vs Admin**: If a user is an `admin`, they can modify any resource. If a user is a `user`, they can only modify their own data (e.g., `PUT /users/{MY_UUID}`) if they are the **Owner**.
+
+**Middleware Usage Example:**
+```go
+// In router.go
+adminOnly := middlewares.RequireRole("admin")
+protected.Handle("/devices", adminOnly(http.HandlerFunc(handlers.CreateDevice))).Methods("POST")
+```
+
+### 3. JSON Sanitization (XSS Protection)
+
+To prevent Cross-Site Scripting (XSS) attacks, the API automatically sanitizes all incoming JSON and Form bodies using the `bluemonday` UGC policy.
+
+- **Strict Mode**: Rejects requests (400 Bad Request) if suspicious HTML/JS is detected.
+- **Recursive Cleaning**: Deep-sanitizes nested JSON objects and arrays.
+- **Query Param Safety**: Automatically cleans search parameters to prevent injection via URL.
+
+### 4. Generic SQL Query Builder
+
+For developers, the `internal/utils/sql_builder.go` provides a type-safe way to generate dynamic SQL queries.
+
+- **`GenerateInsertQuery`**: Automatically maps Go structs to SQL INSERT statements based on `db` or `json` tags.
+- **`BuildUpdateQuery`**: Constructs dynamic UPDATE statements with allowed-field filtering.
+- **`GetStructValues`**: Reflectively extracts data from structs for batch operations.
+
+**Developer Example:**
+```go
+data, _ := utils.GetStructValues(device)
+query, args, _ := utils.GenerateInsertQuery("devices", data)
+// Result: INSERT INTO devices (hostname, ip...) VALUES ($1, $2...) RETURNING id
+```
+
+### 5. Cookie Management
 The API uses secure, server-side cookies for session management. When you log in via `/users/login`, the server issues a `Bearer` cookie with:
 - **HttpOnly** (No JS access)
 - **Secure** (HTTPS only)
 - **SameSite=Strict** (CSRF protection)
 - **MaxAge=24h**
 
-### 3. Data Validation Examples (Proving Integrity)
+### 6. Data Validation Examples (Proving Integrity)
 These examples demonstrate how the API handles invalid inputs.
 
 - **Invalid IP Format**: `POST {{base_url}}/devices` with `{"ip": "999.999.999.999"}` -> `400 Bad Request`

@@ -196,7 +196,7 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		MaxAge:   3600 * 24, // 24 hours
 		HttpOnly: true,
-		Secure:   false, // Set to true in production
+		Secure:   true, // Hardened: Enable Secure flag for HTTPS
 		Expires:  time.Now().Add(24 * time.Hour),
 		SameSite: http.SameSiteStrictMode,
 	})

@@ -10,16 +10,25 @@ import (
 
 func RegisterUserRoutes(router *mux.Router) {
 	users := router.PathPrefix("/users").Subrouter()
+
+	// Public Routes
 	users.HandleFunc("", handlers.CreateUser).Methods("POST")
 	users.HandleFunc("/login", handlers.LoginHandler).Methods("POST")
-
-	// Protected Routes
-	users.Handle("", middlewares.AuthMiddleware(http.HandlerFunc(handlers.GetUsers))).Methods("GET")
-	users.Handle("/{id}", middlewares.AuthMiddleware(http.HandlerFunc(handlers.GetUser))).Methods("GET")
-	users.Handle("/{id}", middlewares.AuthMiddleware(http.HandlerFunc(handlers.UpdateUser))).Methods("PUT")
-	users.Handle("/{id}", middlewares.AuthMiddleware(http.HandlerFunc(handlers.DeleteUser))).Methods("DELETE")
-	users.Handle("/logout", middlewares.AuthMiddleware(http.HandlerFunc(handlers.LogoutHandler))).Methods("POST")
 	users.HandleFunc("/forgot-password", handlers.ForgotPassword).Methods("POST")
 	users.HandleFunc("/reset-password/{resetCode}", handlers.ResetPasswordHandler).Methods("POST")
-	users.Handle("/{id}/password", middlewares.AuthMiddleware(http.HandlerFunc(handlers.UpdatePasswordHandler))).Methods("PUT")
+
+	// Protected Routes (Require Authentication)
+	protected := users.PathPrefix("").Subrouter()
+	protected.Use(middlewares.AuthMiddleware)
+
+	// Admin only for user management
+	adminOnly := middlewares.RequireRole("admin")
+	ownerOrAdmin := middlewares.RequireOwnerOrAdmin()
+
+	protected.Handle("", adminOnly(http.HandlerFunc(handlers.GetUsers))).Methods("GET")
+	protected.Handle("/{id}", ownerOrAdmin(http.HandlerFunc(handlers.GetUser))).Methods("GET")
+	protected.Handle("/{id}", ownerOrAdmin(http.HandlerFunc(handlers.UpdateUser))).Methods("PUT")
+	protected.Handle("/{id}", adminOnly(http.HandlerFunc(handlers.DeleteUser))).Methods("DELETE")
+	protected.HandleFunc("/logout", handlers.LogoutHandler).Methods("POST")
+	protected.Handle("/{id}/password", ownerOrAdmin(http.HandlerFunc(handlers.UpdatePasswordHandler))).Methods("PUT")
 }
