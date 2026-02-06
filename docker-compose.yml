@@ -11,8 +11,8 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./migrations/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
-      - ./migrations/seed_manual.sql:/docker-entrypoint-initdb.d/seed_manual.sql:ro
+      - ./migrations/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./migrations/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
     networks:
       - restapi_network
     healthcheck:
@@ -52,7 +52,7 @@ services:
   pgadmin:
     image: dpage/pgadmin4:latest
     container_name: restapi-pgadmin
-    restart: always
+    restart: unless-stopped
     environment:
       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
@@ -74,6 +74,17 @@ services:
     ports:
       - "1025:1025" # SMTP Server
       - "8025:8025" # Web UI
+    networks:
+      - restapi_network
+
+  frontend:
+    build: frontend
+    container_name: net-inventory-frontend
+    ports:
+      - "80:80"
+    volumes:
+      - ./frontend:/usr/share/nginx/html
+    restart: always
     networks:
       - restapi_network
 

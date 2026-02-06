@@ -6,6 +6,7 @@ import (
 	"restapi/internal/models"
 	"restapi/internal/utils"
 	"strings"
+	"time"
 )
 
 type DeviceRepository struct {
@@ -33,9 +34,10 @@ func (r *DeviceRepository) GetAll(filters map[string]string, sorts []string, lim
 	var devices []models.Device
 	for rows.Next() {
 		var d models.Device
-		var serialNumber, rackPosition, locationID, createdAt, updatedAt sql.NullString
+		var serialNumber, rackPosition, locationID, osVersion, role, notes sql.NullString
+		var createdAt, updatedAt, lastSeen sql.NullTime
 
-		err := rows.Scan(&d.ID, &d.Hostname, &d.IP, &d.Model, &d.Vendor, &d.OS, &serialNumber, &d.Status, &rackPosition, &locationID, &createdAt, &updatedAt)
+		err := rows.Scan(&d.ID, &d.Hostname, &d.IP, &d.Model, &d.Vendor, &d.OS, &serialNumber, &d.Status, &rackPosition, &locationID, &createdAt, &updatedAt, &osVersion, &role, &lastSeen, &d.Tags, &notes)
 		if err != nil {
 			return nil, err
 		}
@@ -43,8 +45,12 @@ func (r *DeviceRepository) GetAll(filters map[string]string, sorts []string, lim
 		d.SerialNumber = serialNumber.String
 		d.RackPosition = rackPosition.String
 		d.LocationID = locationID.String
-		d.CreatedAt = createdAt.String
-		d.UpdatedAt = updatedAt.String
+		d.CreatedAt = formatNullTime(createdAt)
+		d.UpdatedAt = formatNullTime(updatedAt)
+		d.OSVersion = osVersion.String
+		d.Role = role.String
+		d.LastSeen = formatNullTime(lastSeen)
+		d.Notes = notes.String
 
 		devices = append(devices, d)
 	}
@@ -52,23 +58,48 @@ func (r *DeviceRepository) GetAll(filters map[string]string, sorts []string, lim
 }
 
 func (r *DeviceRepository) Count(filters map[string]string) (int, error) {
-	query, args := r.filterDevices(filters)
-	// Replace SELECT ... FROM with SELECT COUNT(*) FROM
-	// Note: We need a robust replacement since the SELECT list is long.
-	// Since filterDevices returns a fixed string structure, this is safe for now.
-	countQuery := strings.Replace(query, "SELECT id, hostname, ip, model, vendor, os, serial_number, status, rack_position, location_id, created_at, updated_at", "SELECT COUNT(*)", 1)
+	// Rebuild query and args to be 100% robust and independent of GetAll's SELECT list
+	query := "SELECT COUNT(*) FROM devices WHERE 1=1"
+	var args []interface{}
+	var argId = 1
+
+	allowedParams := map[string]string{
+		"hostname":      "hostname",
+		"ip":            "ip",
+		"model":         "model",
+		"vendor":        "vendor",
+		"os":            "os",
+		"serial_number": "serial_number",
+		"status":        "status",
+		"rack_position": "rack_position",
+		"location_id":   "location_id",
+		"created_at":    "created_at",
+		"updated_at":    "updated_at",
+		"os_version":    "os_version",
+		"role":          "role",
+		"last_seen":     "last_seen",
+	}
+
+	for param, value := range filters {
+		if dbField, ok := allowedParams[param]; ok {
+			query += fmt.Sprintf(" AND %s = $%d", dbField, argId)
+			args = append(args, value)
+			argId++
+		}
+	}
 
 	var count int
-	err := r.DB.QueryRow(countQuery, args...).Scan(&count)
+	err := r.DB.QueryRow(query, args...).Scan(&count)
 	return count, err
 }
 
 func (r *DeviceRepository) GetByID(id string) (*models.Device, error) {
 	var d models.Device
-	var serialNumber, rackPosition, locationID, createdAt, updatedAt sql.NullString
+	var serialNumber, rackPosition, locationID, osVersion, role, notes sql.NullString
+	var createdAt, updatedAt, lastSeen sql.NullTime
 
-	query := "SELECT id, hostname, ip, model, vendor, os, serial_number, status, rack_position, location_id, created_at, updated_at FROM devices WHERE id = $1"
-	err := r.DB.QueryRow(query, id).Scan(&d.ID, &d.Hostname, &d.IP, &d.Model, &d.Vendor, &d.OS, &serialNumber, &d.Status, &rackPosition, &locationID, &createdAt, &updatedAt)
+	query := "SELECT id, hostname, ip, model, vendor, os, serial_number, status, rack_position, location_id, created_at, updated_at, os_version, role, last_seen, tags, notes FROM devices WHERE id = $1"
+	err := r.DB.QueryRow(query, id).Scan(&d.ID, &d.Hostname, &d.IP, &d.Model, &d.Vendor, &d.OS, &serialNumber, &d.Status, &rackPosition, &locationID, &createdAt, &updatedAt, &osVersion, &role, &lastSeen, &d.Tags, &notes)
 	if err != nil {
 		return nil, err
 	}
@@ -76,8 +107,12 @@ func (r *DeviceRepository) GetByID(id string) (*models.Device, error) {
 	d.SerialNumber = serialNumber.String
 	d.RackPosition = rackPosition.String
 	d.LocationID = locationID.String
-	d.CreatedAt = createdAt.String
-	d.UpdatedAt = updatedAt.String
+	d.CreatedAt = formatNullTime(createdAt)
+	d.UpdatedAt = formatNullTime(updatedAt)
+	d.OSVersion = osVersion.String
+	d.Role = role.String
+	d.LastSeen = formatNullTime(lastSeen)
+	d.Notes = notes.String
 
 	return &d, nil
 }
@@ -101,10 +136,18 @@ func (r *DeviceRepository) Create(d models.Device) (*models.Device, error) {
 }
 
 func (r *DeviceRepository) Update(d models.Device) (int64, error) {
-	query := `UPDATE devices SET hostname=$1, ip=$2, model=$3, vendor=$4, os=$5, serial_number=$6, status=$7, rack_position=$8, location_id=$9, updated_at=CURRENT_TIMESTAMP 
-			  WHERE id=$10`
+	query := `UPDATE devices SET hostname=$1, ip=$2, model=$3, vendor=$4, os=$5, serial_number=$6, status=$7, rack_position=$8, location_id=$9, os_version=$10, role=$11, last_seen=$12, tags=$13, notes=$14, updated_at=CURRENT_TIMESTAMP 
+			  WHERE id=$15`
 
-	res, err := r.DB.Exec(query, d.Hostname, d.IP, d.Model, d.Vendor, d.OS, d.SerialNumber, d.Status, d.RackPosition, d.LocationID, d.ID)
+	var lastSeen sql.NullTime
+	if d.LastSeen != "" {
+		t, err := time.Parse(time.RFC3339Nano, d.LastSeen)
+		if err == nil {
+			lastSeen = sql.NullTime{Time: t, Valid: true}
+		}
+	}
+
+	res, err := r.DB.Exec(query, d.Hostname, d.IP, d.Model, d.Vendor, d.OS, d.SerialNumber, d.Status, d.RackPosition, d.LocationID, d.OSVersion, d.Role, lastSeen, d.Tags, d.Notes, d.ID)
 	if err != nil {
 		return 0, err
 	}
@@ -215,7 +258,7 @@ func (r *DeviceRepository) GetInterfaceCount(deviceID string) (int, error) {
 // Helpers
 
 func (r *DeviceRepository) filterDevices(filters map[string]string) (string, []interface{}) {
-	query := "SELECT id, hostname, ip, model, vendor, os, serial_number, status, rack_position, location_id, created_at, updated_at FROM devices WHERE 1=1"
+	query := "SELECT id, hostname, ip, model, vendor, os, serial_number, status, rack_position, location_id, created_at, updated_at, os_version, role, last_seen, tags, notes FROM devices WHERE 1=1"
 	var args []interface{}
 	argId := 1
 
@@ -231,6 +274,9 @@ func (r *DeviceRepository) filterDevices(filters map[string]string) (string, []i
 		"location_id":   "location_id",
 		"created_at":    "created_at",
 		"updated_at":    "updated_at",
+		"os_version":    "os_version",
+		"role":          "role",
+		"last_seen":     "last_seen",
 	}
 
 	for param, value := range filters {
@@ -260,6 +306,9 @@ func (r *DeviceRepository) addDeviceSorting(query string, sorts []string) string
 		"location_id":   true,
 		"created_at":    true,
 		"updated_at":    true,
+		"os_version":    true,
+		"role":          true,
+		"last_seen":     true,
 	}
 
 	var orderClauses []string

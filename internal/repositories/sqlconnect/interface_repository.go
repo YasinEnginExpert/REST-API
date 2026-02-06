@@ -35,36 +35,80 @@ func (r *InterfaceRepository) GetAll(filters map[string]string, sorts []string, 
 	var interfaces []models.Interface
 	for rows.Next() {
 		var i models.Interface
-		var description, macAddress, speed, deviceID, createdAt sql.NullString
-		if err := rows.Scan(&i.ID, &i.Name, &i.Type, &description, &macAddress, &speed, &i.Status, &deviceID, &createdAt); err != nil {
+		var description, macAddress, speed, deviceID, adminStatus, operStatus, mode, ipAddress sql.NullString
+		var createdAt, updatedAt sql.NullTime
+		var ifIndex, mtu, speedMbps sql.NullInt64
+
+		if err := rows.Scan(&i.ID, &i.Name, &i.Type, &description, &macAddress, &speed, &i.Status, &deviceID, &createdAt, &updatedAt, &adminStatus, &operStatus, &ifIndex, &mtu, &mode, &ipAddress, &speedMbps); err != nil {
 			return nil, err
 		}
 		i.Description = description.String
 		i.MACAddress = macAddress.String
 		i.Speed = speed.String
 		i.DeviceID = deviceID.String
-		i.CreatedAt = createdAt.String
-		// i.UpdatedAt = updatedAt.String // Removed
+		i.CreatedAt = formatNullTime(createdAt)
+		i.UpdatedAt = formatNullTime(updatedAt)
+		i.AdminStatus = adminStatus.String
+		i.OperStatus = operStatus.String
+		i.Mode = mode.String
+		i.IPAddress = ipAddress.String
+		if ifIndex.Valid {
+			val := int(ifIndex.Int64)
+			i.IfIndex = &val
+		}
+		if mtu.Valid {
+			val := int(mtu.Int64)
+			i.MTU = &val
+		}
+		if speedMbps.Valid {
+			val := int(speedMbps.Int64)
+			i.SpeedMbps = &val
+		}
 		interfaces = append(interfaces, i)
 	}
 	return interfaces, nil
 }
 
 func (r *InterfaceRepository) Count(filters map[string]string) (int, error) {
-	query, args := r.filterInterfaces(filters)
-	countQuery := strings.Replace(query, "SELECT id, name, type, description, mac_address, speed, status, device_id, created_at FROM interfaces", "SELECT COUNT(*)", 1)
+	// Rebuild query and args to be 100% robust and independent of GetAll's SELECT list
+	query := "SELECT COUNT(*) FROM interfaces WHERE 1=1"
+	var args []interface{}
+	var argId = 1
+
+	allowedParams := map[string]string{
+		"name":         "name",
+		"type":         "type",
+		"mac_address":  "mac_address",
+		"speed":        "speed",
+		"status":       "status",
+		"device_id":    "device_id",
+		"admin_status": "admin_status",
+		"oper_status":  "oper_status",
+		"mode":         "mode",
+		"ip_address":   "ip_address",
+	}
+
+	for param, value := range filters {
+		if dbField, ok := allowedParams[param]; ok {
+			query += fmt.Sprintf(" AND %s = $%d", dbField, argId)
+			args = append(args, value)
+			argId++
+		}
+	}
 
 	var count int
-	err := r.DB.QueryRow(countQuery, args...).Scan(&count)
+	err := r.DB.QueryRow(query, args...).Scan(&count)
 	return count, err
 }
 
 func (r *InterfaceRepository) GetByID(id string) (*models.Interface, error) {
 	var i models.Interface
-	var description, macAddress, speed, deviceID, createdAt sql.NullString
+	var description, macAddress, speed, deviceID, adminStatus, operStatus, mode, ipAddress sql.NullString
+	var createdAt, updatedAt sql.NullTime
+	var ifIndex, mtu, speedMbps sql.NullInt64
 
-	query := "SELECT id, name, type, description, mac_address, speed, status, device_id, created_at FROM interfaces WHERE id = $1"
-	err := r.DB.QueryRow(query, id).Scan(&i.ID, &i.Name, &i.Type, &description, &macAddress, &speed, &i.Status, &deviceID, &createdAt)
+	query := "SELECT id, name, type, description, mac_address, speed, status, device_id, created_at, updated_at, admin_status, oper_status, ifindex, mtu, mode, ip_address, speed_mbps FROM interfaces WHERE id = $1"
+	err := r.DB.QueryRow(query, id).Scan(&i.ID, &i.Name, &i.Type, &description, &macAddress, &speed, &i.Status, &deviceID, &createdAt, &updatedAt, &adminStatus, &operStatus, &ifIndex, &mtu, &mode, &ipAddress, &speedMbps)
 	if err != nil {
 		return nil, err
 	}
@@ -73,8 +117,24 @@ func (r *InterfaceRepository) GetByID(id string) (*models.Interface, error) {
 	i.MACAddress = macAddress.String
 	i.Speed = speed.String
 	i.DeviceID = deviceID.String
-	i.CreatedAt = createdAt.String
-	// i.UpdatedAt = updatedAt.String
+	i.CreatedAt = formatNullTime(createdAt)
+	i.UpdatedAt = formatNullTime(updatedAt)
+	i.AdminStatus = adminStatus.String
+	i.OperStatus = operStatus.String
+	i.Mode = mode.String
+	i.IPAddress = ipAddress.String
+	if ifIndex.Valid {
+		val := int(ifIndex.Int64)
+		i.IfIndex = &val
+	}
+	if mtu.Valid {
+		val := int(mtu.Int64)
+		i.MTU = &val
+	}
+	if speedMbps.Valid {
+		val := int(speedMbps.Int64)
+		i.SpeedMbps = &val
+	}
 
 	return &i, nil
 }
@@ -97,10 +157,23 @@ func (r *InterfaceRepository) Create(i models.Interface) (*models.Interface, err
 }
 
 func (r *InterfaceRepository) Update(i models.Interface) (int64, error) {
-	query := `UPDATE interfaces SET name=$1, type=$2, description=$3, mac_address=$4, speed=$5, status=$6, device_id=$7 
-			  WHERE id=$8`
+	query := `UPDATE interfaces SET name=$1, type=$2, description=$3, mac_address=$4, speed=$5, status=$6, device_id=$7, admin_status=$8, oper_status=$9, ifindex=$10, mtu=$11, mode=$12, ip_address=$13, speed_mbps=$14, updated_at=CURRENT_TIMESTAMP
+			  WHERE id=$15`
 
-	res, err := r.DB.Exec(query, i.Name, i.Type, i.Description, i.MACAddress, i.Speed, i.Status, i.DeviceID, i.ID)
+	var ifIndex sql.NullInt64
+	if i.IfIndex != nil {
+		ifIndex = sql.NullInt64{Int64: int64(*i.IfIndex), Valid: true}
+	}
+	var mtu sql.NullInt64
+	if i.MTU != nil {
+		mtu = sql.NullInt64{Int64: int64(*i.MTU), Valid: true}
+	}
+	var speedMbps sql.NullInt64
+	if i.SpeedMbps != nil {
+		speedMbps = sql.NullInt64{Int64: int64(*i.SpeedMbps), Valid: true}
+	}
+
+	res, err := r.DB.Exec(query, i.Name, i.Type, i.Description, i.MACAddress, i.Speed, i.Status, i.DeviceID, i.AdminStatus, i.OperStatus, ifIndex, mtu, i.Mode, i.IPAddress, speedMbps, i.ID)
 	if err != nil {
 		return 0, err
 	}
@@ -122,8 +195,8 @@ func (r *InterfaceRepository) Patch(id string, updates map[string]interface{}, a
 		return 0, err
 	}
 
-	// Inject updated_at - REMOVED for interfaces
-	// query = strings.Replace(query, " WHERE", ", updated_at=CURRENT_TIMESTAMP WHERE", 1)
+	// Inject updated_at
+	query = strings.Replace(query, " WHERE", ", updated_at=CURRENT_TIMESTAMP WHERE", 1)
 
 	res, err := r.DB.Exec(query, args...)
 	if err != nil {
@@ -157,8 +230,8 @@ func (r *InterfaceRepository) BulkPatch(updates []map[string]interface{}, allowe
 			continue
 		}
 
-		// Inject updated_at - REMOVED
-		// query = strings.Replace(query, " WHERE", ", updated_at=CURRENT_TIMESTAMP WHERE", 1)
+		// Inject updated_at
+		query = strings.Replace(query, " WHERE", ", updated_at=CURRENT_TIMESTAMP WHERE", 1)
 
 		_, err = tx.Exec(query, args...)
 		if err != nil {
@@ -206,20 +279,26 @@ func (r *InterfaceRepository) GetCountByDeviceID(deviceID string) (int, error) {
 // Helpers
 
 func (r *InterfaceRepository) filterInterfaces(filters map[string]string) (string, []interface{}) {
-	query := "SELECT id, name, type, description, mac_address, speed, status, device_id, created_at FROM interfaces WHERE 1=1"
+	query := "SELECT id, name, type, description, mac_address, speed, status, device_id, created_at, updated_at, admin_status, oper_status, ifindex, mtu, mode, ip_address, speed_mbps FROM interfaces WHERE 1=1"
 	var args []interface{}
 	argId := 1
 
 	allowedParams := map[string]string{
-		"name":        "name",
-		"type":        "type",
-		"description": "description",
-		"mac_address": "mac_address",
-		"speed":       "speed",
-		"status":      "status",
-		"device_id":   "device_id",
-		"created_at":  "created_at",
-		// "updated_at":  "updated_at",
+		"name":         "name",
+		"type":         "type",
+		"description":  "description",
+		"mac_address":  "mac_address",
+		"speed":        "speed",
+		"status":       "status",
+		"device_id":    "device_id",
+		"created_at":   "created_at",
+		"admin_status": "admin_status",
+		"oper_status":  "oper_status",
+		"ifindex":      "ifindex",
+		"mtu":          "mtu",
+		"mode":         "mode",
+		"ip_address":   "ip_address",
+		"speed_mbps":   "speed_mbps",
 	}
 
 	for param, value := range filters {
@@ -238,15 +317,21 @@ func (r *InterfaceRepository) addInterfaceSorting(query string, sorts []string) 
 	}
 
 	allowedParams := map[string]bool{
-		"name":        true,
-		"type":        true,
-		"description": true,
-		"mac_address": true,
-		"speed":       true,
-		"status":      true,
-		"device_id":   true,
-		"created_at":  true,
-		// "updated_at":  true,
+		"name":         true,
+		"type":         true,
+		"description":  true,
+		"mac_address":  true,
+		"speed":        true,
+		"status":       true,
+		"device_id":    true,
+		"created_at":   true,
+		"admin_status": true,
+		"oper_status":  true,
+		"ifindex":      true,
+		"mtu":          true,
+		"mode":         true,
+		"ip_address":   true,
+		"speed_mbps":   true,
 	}
 
 	var orderClauses []string

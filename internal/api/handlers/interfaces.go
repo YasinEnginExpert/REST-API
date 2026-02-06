@@ -197,13 +197,20 @@ func PatchInterface(w http.ResponseWriter, r *http.Request) {
 	}
 
 	allowedFields := map[string]bool{
-		"name":        true,
-		"type":        true,
-		"description": true,
-		"mac_address": true,
-		"speed":       true,
-		"status":      true,
-		"device_id":   true,
+		"name":         true,
+		"type":         true,
+		"description":  true,
+		"mac_address":  true,
+		"speed":        true,
+		"status":       true,
+		"device_id":    true,
+		"ip_address":   true,
+		"speed_mbps":   true,
+		"admin_status": true,
+		"oper_status":  true,
+		"ifindex":      true,
+		"mtu":          true,
+		"mode":         true,
 	}
 
 	// VALIDATION
@@ -252,13 +259,20 @@ func BulkPatchInterfaces(w http.ResponseWriter, r *http.Request) {
 	}
 
 	allowedFields := map[string]bool{
-		"name":        true,
-		"type":        true,
-		"description": true,
-		"mac_address": true,
-		"speed":       true,
-		"status":      true,
-		"device_id":   true,
+		"name":         true,
+		"type":         true,
+		"description":  true,
+		"mac_address":  true,
+		"speed":        true,
+		"status":       true,
+		"device_id":    true,
+		"ip_address":   true,
+		"speed_mbps":   true,
+		"admin_status": true,
+		"oper_status":  true,
+		"ifindex":      true,
+		"mtu":          true,
+		"mode":         true,
 	}
 
 	// Pre-validate

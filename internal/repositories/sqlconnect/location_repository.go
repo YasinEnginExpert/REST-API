@@ -33,37 +33,79 @@ func (r *LocationRepository) GetAll(filters map[string]string, sorts []string, l
 	var locations []models.Location
 	for rows.Next() {
 		var l models.Location
-		var address, createdAt sql.NullString
-		if err := rows.Scan(&l.ID, &l.Name, &l.City, &l.Country, &address, &createdAt); err != nil {
+		var address, siteCode, timezone sql.NullString
+		var createdAt, updatedAt sql.NullTime
+		var lat, lon sql.NullFloat64
+		if err := rows.Scan(&l.ID, &l.Name, &l.City, &l.Country, &address, &siteCode, &timezone, &lat, &lon, &createdAt, &updatedAt); err != nil {
 			return nil, err
 		}
 		l.Address = address.String
-		l.CreatedAt = createdAt.String
+		l.CreatedAt = formatNullTime(createdAt)
+		l.SiteCode = siteCode.String
+		l.Timezone = timezone.String
+		l.UpdatedAt = formatNullTime(updatedAt)
+		if lat.Valid {
+			l.Lat = &lat.Float64
+		}
+		if lon.Valid {
+			l.Lon = &lon.Float64
+		}
 		locations = append(locations, l)
 	}
 	return locations, nil
 }
 
 func (r *LocationRepository) Count(filters map[string]string) (int, error) {
-	query, args := r.filterLocations(filters)
-	countQuery := strings.Replace(query, "SELECT id, name, city, country, address, created_at FROM locations", "SELECT COUNT(*)", 1)
+	// Rebuild query and args to be 100% robust and independent of GetAll's SELECT list
+	query := "SELECT COUNT(*) FROM locations WHERE 1=1"
+	var args []interface{}
+	var argId = 1
+
+	allowedParams := map[string]string{
+		"name":      "name",
+		"city":      "city",
+		"country":   "country",
+		"address":   "address",
+		"site_code": "site_code",
+		"timezone":  "timezone",
+	}
+
+	for param, value := range filters {
+		if dbField, ok := allowedParams[param]; ok {
+			query += fmt.Sprintf(" AND %s = $%d", dbField, argId)
+			args = append(args, value)
+			argId++
+		}
+	}
 
 	var count int
-	err := r.DB.QueryRow(countQuery, args...).Scan(&count)
+	err := r.DB.QueryRow(query, args...).Scan(&count)
 	return count, err
 }
 
 func (r *LocationRepository) GetByID(id string) (*models.Location, error) {
 	var l models.Location
-	var address, createdAt sql.NullString
-	err := r.DB.QueryRow("SELECT id, name, city, country, address, created_at FROM locations WHERE id=$1", id).
-		Scan(&l.ID, &l.Name, &l.City, &l.Country, &address, &createdAt)
+	var address, siteCode, timezone sql.NullString
+	var createdAt, updatedAt sql.NullTime
+	var lat, lon sql.NullFloat64
+
+	err := r.DB.QueryRow("SELECT id, name, city, country, address, site_code, timezone, lat, lon, created_at, updated_at FROM locations WHERE id=$1", id).
+		Scan(&l.ID, &l.Name, &l.City, &l.Country, &address, &siteCode, &timezone, &lat, &lon, &createdAt, &updatedAt)
 
 	if err != nil {
 		return nil, err
 	}
 	l.Address = address.String
-	l.CreatedAt = createdAt.String
+	l.CreatedAt = formatNullTime(createdAt)
+	l.UpdatedAt = formatNullTime(updatedAt)
+	l.SiteCode = siteCode.String
+	l.Timezone = timezone.String
+	if lat.Valid {
+		l.Lat = &lat.Float64
+	}
+	if lon.Valid {
+		l.Lon = &lon.Float64
+	}
 	return &l, nil
 }
 
@@ -72,6 +114,8 @@ func (r *LocationRepository) Create(l models.Location) (*models.Location, error)
 	if err != nil {
 		return nil, err
 	}
+	delete(data, "created_at")
+	delete(data, "updated_at")
 
 	query, args, err := utils.GenerateInsertQuery("locations", data)
 	if err != nil {
@@ -86,8 +130,25 @@ func (r *LocationRepository) Create(l models.Location) (*models.Location, error)
 }
 
 func (r *LocationRepository) Update(l models.Location) (int64, error) {
-	query := "UPDATE locations SET name=$1, city=$2, country=$3, address=$4 WHERE id=$5"
-	res, err := r.DB.Exec(query, l.Name, l.City, l.Country, l.Address, l.ID)
+	query := "UPDATE locations SET name=$1, city=$2, country=$3, address=$4, site_code=$5, timezone=$6, lat=$7, lon=$8, updated_at=CURRENT_TIMESTAMP WHERE id=$9"
+	var siteCode sql.NullString
+	if l.SiteCode != "" {
+		siteCode = sql.NullString{String: l.SiteCode, Valid: true}
+	}
+	var timezone sql.NullString
+	if l.Timezone != "" {
+		timezone = sql.NullString{String: l.Timezone, Valid: true}
+	}
+	var lat sql.NullFloat64
+	if l.Lat != nil {
+		lat = sql.NullFloat64{Float64: *l.Lat, Valid: true}
+	}
+	var lon sql.NullFloat64
+	if l.Lon != nil {
+		lon = sql.NullFloat64{Float64: *l.Lon, Valid: true}
+	}
+
+	res, err := r.DB.Exec(query, l.Name, l.City, l.Country, l.Address, siteCode, timezone, lat, lon, l.ID)
 	if err != nil {
 		return 0, err
 	}
@@ -190,15 +251,17 @@ func (r *LocationRepository) GetDeviceCount(locationID string) (int, error) {
 // Helpers
 
 func (r *LocationRepository) filterLocations(filters map[string]string) (string, []interface{}) {
-	query := "SELECT id, name, city, country, address, created_at FROM locations WHERE 1=1"
+	query := "SELECT id, name, city, country, address, site_code, timezone, lat, lon, created_at, updated_at FROM locations WHERE 1=1"
 	var args []interface{}
 	argId := 1
 
 	allowedParams := map[string]string{
-		"name":    "name",
-		"city":    "city",
-		"country": "country",
-		"address": "address",
+		"name":      "name",
+		"city":      "city",
+		"country":   "country",
+		"address":   "address",
+		"site_code": "site_code",
+		"timezone":  "timezone",
 	}
 
 	for param, value := range filters {
@@ -222,6 +285,9 @@ func (r *LocationRepository) addLocationSorting(query string, sorts []string) st
 		"country":    true,
 		"address":    true,
 		"created_at": true,
+		"updated_at": true,
+		"site_code":  true,
+		"timezone":   true,
 	}
 
 	var orderClauses []string

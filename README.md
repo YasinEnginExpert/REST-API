@@ -212,7 +212,7 @@ This will:
 1.  Spin up Postgres and PgAdmin containers.
 2.  Wait for the database to be healthy.
 3.  **Automatically run migrations** (`init.sql`) to create tables.
-4.  **Seed the database** (`seed_manual.sql`) with massive data sets (Locations, Devices, Interfaces).
+4.  **Seed the database** (`seed.sql`) with massive data sets (Locations, Devices, Interfaces).
 5.  Start the API server at `https://localhost:3000`.
 
 ### Other Commands
@@ -372,6 +372,22 @@ Content-Type: application/json
 ["uuid-1", "uuid-2", "uuid-3"]
 ```
 
+#### Query Parameter Reference (Devices)
+| Parameter | Description | Example |
+| :--- | :--- | :--- |
+| `hostname` | Exact match | `?hostname=core-router-01` |
+| `ip` | Exact IP match | `?ip=10.20.30.40` |
+| `vendor` | Manufacturer | `?vendor=Cisco` |
+| `model` | Hardware model | `?model=ASR9000` |
+| `os` | Operating System | `?os=IOS-XR` |
+| `os_version` | OS Version string | `?os_version=7.4.1` |
+| `status` | Lifecycle status | `?status=active` |
+| `role` | Functional role | `?role=spine` |
+| `serial_number` | Serial Number | `?serial_number=SN12345` |
+| `rack_position` | Location details | `?rack_position=Rack-A01` |
+| `location_id` | UUID of location | `?location_id={UUID}` |
+| `last_seen` | Timestamp | `?last_seen=2024-01-01T00:00:00Z` |
+
 #### Sub-Resources & Utilities
 | Requirement | Method | URL Path |
 | :--- | :--- | :--- |
@@ -411,6 +427,23 @@ Content-Type: application/json
 
 ["uuid-1", "uuid-2"]
 ```
+
+#### Query Parameter Reference (Interfaces)
+| Parameter | Description | Example |
+| :--- | :--- | :--- |
+| `name` | Interface name | `?name=Eth1/1` |
+| `type` | Media type | `?type=fiber` |
+| `status` | Link status | `?status=up` |
+| `admin_status` | Configured status | `?admin_status=up` |
+| `oper_status` | Protocol status | `?oper_status=down` |
+| `speed` | Human-readable speed | `?speed=10Gbps` |
+| `speed_mbps` | Speed in Mbps (Int) | `?speed_mbps=10000` |
+| `mtu` | Packet size | `?mtu=9000` |
+| `mac_address` | Hardware address | `?mac_address=00:aa:bb...` |
+| `mode` | L2/L3 Mode | `?mode=trunk` |
+| `ifindex` | SNMP Index | `?ifindex=101` |
+| `device_id` | Parent Device UUID | `?device_id={UUID}` |
+| `ip_address` | Assigned IP | `?ip_address=192.168.1.1` |
 
 #### Sub-Resources & Utilities
 | Requirement | Method | URL Path |
@@ -479,7 +512,50 @@ Content-Type: application/json
 
 ---
 
-### 7. Advanced Usage & Edge Cases
+### 7. Enterprise Features & Topology
+
+**Topology Management (Links)**
+Full CRUD support for physical link management between interfaces.
+
+*   **List All Links**: `GET /links`
+*   **Create Link**: 
+    ```http
+    POST /links
+    Content-Type: application/json
+    {
+      "a_interface_id": "{UUID}",
+      "b_interface_id": "{UUID}",
+      "type": "fiber",
+      "status": "up"
+    }
+    ```
+*   **Update Link**: `PUT /links/{id}`
+*   **Delete Link**: `DELETE /links/{id}`
+
+**System Events**
+*   **List Events**: `GET /events`
+*   **Create Event (System/Webhooks)**:
+    ```http
+    POST /events
+    Content-Type: application/json
+    {
+      "severity": "critical",
+      "type": "security",
+      "message": "Unauthorized access attempt detected",
+      "device_id": "{OPTIONAL_UUID}"
+    }
+    ```
+
+**Performance Metrics**
+*   **System Overview**: `GET /metrics`
+*   **Device Specific**: `GET /metrics/device/{id}`
+
+**Utilities & Debug**
+*   **Debug Location Count**: `GET /debug/count`
+
+---
+
+### 8. Advanced Usage & Edge Cases
 
 #### **A. System Health Check**
 Verifies that the API server is reachable.
@@ -867,6 +943,22 @@ These examples demonstrate how the API handles invalid inputs.
 - **Invalid IP Format**: `POST {{base_url}}/devices` with `{"ip": "999.999.999.999"}` -> `400 Bad Request`
 - **VLAN Range Check**: `POST {{base_url}}/vlans` with `{"vlan_id": 5000}` -> `400 Bad Request`
 - **Missing Required Fields**: `POST {{base_url}}/users` with empty fields -> `400 Bad Request`
+
+---
+
+## System Upgrades & Audit (Feb 2026)
+
+A comprehensive security and code quality audit was performed to ensure production readiness.
+
+### 1. Robust Password Hashing
+- **Upgrade**: Refactored `Argon2` verification logic to dynamically parse hash parameters (Memory, Time, Threads).
+- **Benefit**: Ensures forward compatibility. If security parameters are increased in the future, existing user passwords will remain valid without migration.
+- **Verification**: New unit tests added in `pkg/utils/password_test.go`.
+
+### 2. Codebase & API Integrity
+- **Backend Audit**: Verified all 50+ API endpoints for consistency between Go handlers (Backend) and JS Client (Frontend).
+- **Clean Code**: Removed debug artifacts (`console.log`) from production frontend builds.
+- **Stability**: Confirmed zero-warning build status with `go build` and `go vet`.
 
 ---
 

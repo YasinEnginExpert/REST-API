@@ -193,6 +193,9 @@ func PatchVLAN(w http.ResponseWriter, r *http.Request) {
 		"vlan_id":     true,
 		"name":        true,
 		"description": true,
+		"location_id": true,
+		"subnet_cidr": true,
+		"gateway_ip":  true,
 	}
 
 	// VALIDATION
@@ -244,6 +247,9 @@ func BulkPatchVLANs(w http.ResponseWriter, r *http.Request) {
 		"vlan_id":     true,
 		"name":        true,
 		"description": true,
+		"location_id": true,
+		"subnet_cidr": true,
+		"gateway_ip":  true,
 	}
 
 	for _, item := range updates {

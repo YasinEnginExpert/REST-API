@@ -204,6 +204,11 @@ func PatchDevice(w http.ResponseWriter, r *http.Request) {
 		"status":        true,
 		"rack_position": true,
 		"location_id":   true,
+		"tags":          true,
+		"os_version":    true,
+		"role":          true,
+		"last_seen":     true,
+		"notes":         true,
 	}
 
 	// VALIDATION LOGIC
@@ -260,6 +265,11 @@ func BulkPatchDevices(w http.ResponseWriter, r *http.Request) {
 		"status":        true,
 		"rack_position": true,
 		"location_id":   true,
+		"tags":          true,
+		"os_version":    true,
+		"role":          true,
+		"last_seen":     true,
+		"notes":         true,
 	}
 
 	// Pre-validate

@@ -201,10 +201,19 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteStrictMode,
 	})
 
-	// Return success response
+	// Return success response with user meta
+	response := map[string]interface{}{
+		"status":      "success",
+		"token":       tokenString,
+		"user_id":     user.ID,
+		"username":    user.Username,
+		"role":        user.Role,
+		"mfa_enabled": user.MFAEnabled,
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(fmt.Sprintf(`{"status": "success", "message": "Login successful", "token": "%s"}`, tokenString)))
+	json.NewEncoder(w).Encode(response)
 }
 
 func LogoutHandler(w http.ResponseWriter, r *http.Request) {

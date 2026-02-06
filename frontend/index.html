@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Network Inventory Enterprise</title>
+
+    <!-- Fonts & Icons -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="css/style.css">
+
+    <!-- Tabulator (Enterprise Tables) -->
+    <link href="https://unpkg.com/tabulator-tables@6.2.1/dist/css/tabulator.min.css" rel="stylesheet">
+    <script type="text/javascript" src="https://unpkg.com/tabulator-tables@6.2.1/dist/js/tabulator.min.js"></script>
+
+    <!-- Day.js (Time Formatting) -->
+    <script src="https://cdn.jsdelivr.net/npm/dayjs@1/dayjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dayjs@1/plugin/relativeTime.js"></script>
+    <script>dayjs.extend(window.dayjs_plugin_relativeTime);</script>
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+
+<body>
+
+    <!-- Auth Layer (split layout on large screens) -->
+    <div id="auth-layer" class="auth-wrapper">
+        <div class="auth-brand">
+            <h1>NetAdmin <span>Pro</span></h1>
+            <p>Enterprise network inventory and monitoring. Manage devices, interfaces, VLANs, and locations from one
+                place.</p>
+        </div>
+        <div class="auth-form-wrap">
+            <div class="auth-box">
+                <div class="auth-logo">
+                    <i class="fa-solid fa-shield-halved"></i>
+                    <h2>Sign in</h2>
+                    <p>Enter your credentials to continue</p>
+                </div>
+                <form id="login-form">
+                    <input type="text" id="username" class="auth-input" placeholder="Username" required
+                        autocomplete="username">
+                    <input type="password" id="password" class="auth-input" placeholder="Password" required
+                        autocomplete="current-password">
+                    <button type="submit" class="btn btn-primary"
+                        style="width:100%; justify-content:center; padding:0.75rem;">Sign in</button>
+                    <div style="text-align:center; margin-top:1rem;">
+                        <a href="#" id="link-forgot-pass" class="auth-link">Forgot password?</a>
+                    </div>
+                    <p id="login-error" class="login-error" aria-live="polite"></p>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- App Layout -->
+    <div id="app-layer" class="app-layout" style="display:none;">
+
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <i class="fa-solid fa-shapes"></i> NetAdmin
+            </div>
+
+            <nav class="nav-menu">
+                <div class="nav-section">Overview</div>
+                <button class="nav-item active" data-view="dashboard">
+                    <i class="fa-solid fa-chart-pie"></i> Dashboard
+                </button>
+                <button class="nav-item" data-view="alerts">
+                    <i class="fa-solid fa-bell"></i> Alerts <span class="badge danger"
+                        style="margin-left:auto; font-size:0.7rem;">3</span>
+                </button>
+
+                <div class="nav-section">Inventory</div>
+                <button class="nav-item" data-view="devices">
+                    <i class="fa-solid fa-server"></i> Devices
+                </button>
+                <button class="nav-item" data-view="interfaces">
+                    <i class="fa-solid fa-network-wired"></i> Interfaces
+                </button>
+                <button class="nav-item" data-view="vlans">
+                    <i class="fa-solid fa-diagram-project"></i> VLANs
+                </button>
+                <button class="nav-item" data-view="locations">
+                    <i class="fa-solid fa-map-location"></i> Locations
+                </button>
+                <button class="nav-item" data-view="links">
+                    <i class="fa-solid fa-link"></i> Topology Links
+                </button>
+                <button class="nav-item" data-view="metrics">
+                    <i class="fa-solid fa-chart-line"></i> Metrics
+                </button>
+
+                <div class="nav-section">System</div>
+                <button class="nav-item" data-view="users">
+                    <i class="fa-solid fa-users-cog"></i> User Mgmt
+                </button>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="user-menu" id="user-menu-btn">
+                    <div class="avatar">AD</div>
+                    <div style="flex:1">
+                        <div style="font-size:0.9rem; font-weight:600;" id="user-name">Admin</div>
+                        <div style="font-size:0.75rem; color:#64748b;" id="user-role">Super User</div>
+                    </div>
+                    <i class="fa-solid fa-sign-out-alt" id="logout-btn" title="Logout"></i>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Topbar -->
+            <header class="topbar">
+                <div class="search-bar">
+                    <i class="fa-solid fa-search"></i>
+                    <input type="text" placeholder="Global search (Ctrl+K)...">
+                </div>
+
+                <div class="topbar-actions">
+                    <span id="last-updated"
+                        style="font-size:0.8rem; color:var(--text-secondary); margin-right:1rem;">Updated: Just
+                        now</span>
+                    <button class="action-btn" id="theme-toggle" title="Toggle Theme">
+                        <i class="fa-solid fa-moon"></i>
+                    </button>
+                    <button class="action-btn">
+                        <i class="fa-regular fa-question-circle"></i>
+                    </button>
+                </div>
+            </header>
+
+            <!-- Page View Container -->
+            <div id="page-container" class="page-view">
+                <!-- Content Injected via JS -->
+            </div>
+        </main>
+    </div>
+
+    <!-- Right Drawer -->
+    <div id="drawer-overlay" class="drawer-overlay"></div>
+    <div id="drawer" class="drawer">
+        <div class="drawer-header">
+            <div class="drawer-title" id="drawer-title">Details</div>
+            <button class="drawer-close" onclick="closeDrawer()"><i class="fa-solid fa-times"></i></button>
+        </div>
+        <div class="drawer-content" id="drawer-content">
+            <!-- Details loaded here -->
+        </div>
+        <div class="drawer-actions" id="drawer-actions">
+            <!-- Action buttons -->
+        </div>
+    </div>
+
+    <!-- Toasts -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- Modules -->
+    <script type="module" src="js/app.js"></script>
+</body>
+
+</html>

@@ -11,6 +11,8 @@ var allowOrigins = []string{
 	"https://my-origin-url.com",
 	"https://localhost:3000",
 	"http://localhost:3000", // Local Dev
+	"http://localhost",      // Frontend (Port 80)
+	"http://127.0.0.1",      // Localhost IP
 	"http://localhost:8080", // Vue / Generic
 	"http://localhost:5173", // Vite / React
 	"http://localhost:4200", // Angular
@@ -31,10 +33,7 @@ func Cors(next http.Handler) http.Handler {
 				return
 			}
 		} else {
-			// No origin (e.g. server-to-server or curl), usually verified by other means or blocked.
-			// Ideally, for a public API, "Access-Control-Allow-Origin: *" is used.
-			// For this specific logic, we are strict.
-			// Uncomment below if you want to allow non-browser requests freely:
+			// No origin (e.g. server-to-server or curl)
 			// w.Header().Set("Access-Control-Allow-Origin", "*")
 		}
 
@@ -54,6 +53,11 @@ func Cors(next http.Handler) http.Handler {
 
 // Logic fix: Check ALL origins before returning false
 func isOriginAllowed(origin string) bool {
+	// Explicit whitelist for local dev to prevent any string matching issues
+	if origin == "http://localhost" || origin == "http://127.0.0.1" || origin == "http://localhost:3000" {
+		return true
+	}
+
 	for _, allowedOrigin := range allowOrigins {
 		if origin == allowedOrigin {
 			return true

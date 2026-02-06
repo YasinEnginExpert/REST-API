@@ -1,18 +1,16 @@
 package main
 
 import (
-	"crypto/tls"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"restapi/internal/api/handlers"
+	"restapi/internal/api/middlewares"
 	"restapi/internal/config"
 	"restapi/internal/repositories/sqlconnect"
 	"restapi/internal/router"
 	pkgutils "restapi/pkg/utils"
-
-	"golang.org/x/net/http2"
 )
 
 func main() {
@@ -71,7 +69,7 @@ func main() {
 
 	// Auto-Run Migrations
 	fmt.Println("Checking database schema...")
-	migrationFile := "migrations/init.sql"
+	migrationFile := "migrations/schema.sql"
 	// Check if file exists roughly (optional, os.ReadFile handles it)
 	// Note: We use relative path assuming execution from project root
 	sqlScript, err := os.ReadFile(migrationFile)
@@ -90,26 +88,29 @@ func main() {
 	// Initialize routes
 	router := router.Routes()
 
-	// Configure TLS
-	tlsConfig := &tls.Config{
-		MinVersion: tls.VersionTLS12,
-		// ClientAuth: tls.RequireAndVerifyClientCert, // Enforce mTLS (Disabled for simpler dev testing)
-		ClientAuth: tls.NoClientCert, // Allow simple HTTPS
-	}
+	// Configure TLS (Disabled)
+	/*
+		tlsConfig := &tls.Config{
+			MinVersion: tls.VersionTLS12,
+			ClientAuth: tls.NoClientCert,
+		}
+	*/
 
-	// Create a customer Server
+	// Create a custom Server
+	// CRITICAL FIX: Wrap router with Cors middleware globally to handle OPTIONS requests
+	// before the router even tries to match paths.
 	server := &http.Server{
-		Addr:      fmt.Sprintf(":%d", cfg.Server.Port),
-		Handler:   router,
-		TLSConfig: tlsConfig,
+		Addr:    fmt.Sprintf(":%d", cfg.Server.Port),
+		Handler: middlewares.Cors(router),
 	}
 
-	// Enable http2
-	http2.ConfigureServer(server, &http2.Server{})
+	// Enable http2 (Optional, often requires TLS but can work with h2c)
+	// http2.ConfigureServer(server, &http2.Server{})
 
-	fmt.Println("Server is running on port:", cfg.Server.Port)
+	fmt.Println("Server is running on port:", cfg.Server.Port, "(HTTP)")
 
-	err = server.ListenAndServeTLS(cfg.Server.CertFile, cfg.Server.KeyFile)
+	// Use standard HTTP to avoid self-signed cert issues
+	err = server.ListenAndServe()
 	if err != nil {
 		log.Fatalln("Could not start server", err)
 	}

@@ -92,5 +92,41 @@ func main() {
 	}
 	exportToJSON("interfaces.json", interfaces)
 
+	// 6. Export Links
+	fmt.Println("Exporting Links...")
+	linkRepo := sqlconnect.NewLinkRepository(db)
+	links, err := linkRepo.GetAll(map[string]string{}, 1000000, 0)
+	if err != nil {
+		log.Fatalf("Error fetching links: %v", err)
+	}
+	exportToJSON("links.json", links)
+
+	// 7. Export Events
+	fmt.Println("Exporting Events...")
+	eventRepo := sqlconnect.NewEventRepository(db)
+	events, err := eventRepo.GetAll(1000000, 0)
+	if err != nil {
+		log.Fatalf("Error fetching events: %v", err)
+	}
+	exportToJSON("events.json", events)
+
+	// 8. Export Metrics
+	fmt.Println("Exporting Metrics...")
+	metricRepo := sqlconnect.NewMetricRepository(db)
+	metrics, err := metricRepo.GetAll(1000000, 0, "")
+	if err != nil {
+		log.Fatalf("Error fetching metrics: %v", err)
+	}
+	exportToJSON("metrics.json", metrics)
+
+	// 9. Export Audit Logs
+	fmt.Println("Exporting Audit Logs...")
+	auditRepo := sqlconnect.NewAuditRepository(db)
+	auditLogs, err := auditRepo.GetAll(1000000, 0)
+	if err != nil {
+		log.Fatalf("Error fetching audit logs: %v", err)
+	}
+	exportToJSON("audit_logs.json", auditLogs)
+
 	fmt.Println("All exports completed successfully.")
 }

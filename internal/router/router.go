@@ -12,6 +12,7 @@ func Routes() *mux.Router {
 
 	// Create Middleware Stack
 	stack := middlewares.CreateStack(
+
 		middlewares.RealIP,
 		middlewares.RequestID,
 		middlewares.RateLimit,
@@ -22,7 +23,6 @@ func Routes() *mux.Router {
 		middlewares.SecurityHeaders,
 		middlewares.SanitizeMiddleware,
 		middlewares.FetchMetadata, // Modern CSRF check
-		middlewares.Cors,
 		middlewares.MiddlewaresExcludePaths(middlewares.Logger, "/docs", "/favicon.ico"),
 		middlewares.Compression,
 	)
@@ -38,6 +38,11 @@ func Routes() *mux.Router {
 	RegisterInterfaceRoutes(router)
 	RegisterLocationRoutes(router)
 	RegisterVLANRoutes(router)
+	RegisterLinkRoutes(router)
+	RegisterEventRoutes(router)
+	RegisterMetricRoutes(router)
+	RegisterAuditRoutes(router)
+	router.HandleFunc("/debug/count", handlers.DebugLocationCount).Methods("GET")
 	RegisterUserRoutes(router)
 
 	return router

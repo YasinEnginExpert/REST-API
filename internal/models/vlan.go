@@ -7,9 +7,14 @@ import (
 
 type VLAN struct {
 	ID          string `json:"id" db:"id"`
-	VlanID      int    `json:"vlan_id" db:"vlan_id"` // 1-4096
+	VlanID      int    `json:"vlan_id" db:"vlan_id"`
 	Name        string `json:"name" db:"name"`
 	Description string `json:"description,omitempty" db:"description"`
+	LocationID  string `json:"location_id,omitempty" db:"location_id"`
+	SubnetCIDR  string `json:"subnet_cidr,omitempty" db:"subnet_cidr"`
+	GatewayIP   string `json:"gateway_ip,omitempty" db:"gateway_ip"`
+	CreatedAt   string `json:"created_at,omitempty" db:"created_at"`
+	UpdatedAt   string `json:"updated_at,omitempty" db:"updated_at"`
 }
 
 // Validate checks for required fields and value ranges

@@ -130,6 +130,17 @@ func GetStructValues(s interface{}) (map[string]interface{}, error) {
 		}
 
 		fieldVal := val.Field(i)
+		if fieldVal.Kind() == reflect.Ptr {
+			if fieldVal.IsNil() {
+				if isOmitEmpty {
+					continue
+				}
+				out[key] = nil
+				continue
+			}
+			fieldVal = fieldVal.Elem()
+		}
+
 		if isOmitEmpty && fieldVal.IsZero() {
 			continue
 		}

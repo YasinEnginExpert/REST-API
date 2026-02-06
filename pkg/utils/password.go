@@ -52,12 +52,14 @@ func CheckPassword(password, encodedHash string) (bool, error) {
 
 	// parts[0] boş, parts[1] "argon2id", parts[2] "v=19", parts[3] parametreler, parts[4] salt, parts[5] hash
 
-	// Parametreleri ayrıştır (basitlik için varsayılanları kullandığımızı varsayıyoruz,
-	// profesyonel kullanımda buradaki değerleri okuyup ona göre hashlemek daha doğrudur)
-	// var memory uint32
-	// var time uint32
-	// var threads uint8
-	// _, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &memory, &time, &threads)
+	var memory uint32
+	var time uint32
+	var threads uint8
+
+	_, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &memory, &time, &threads)
+	if err != nil {
+		return false, errors.New("invalid hash parameters")
+	}
 
 	salt, err := base64.RawStdEncoding.DecodeString(parts[4])
 	if err != nil {
@@ -70,7 +72,8 @@ func CheckPassword(password, encodedHash string) (bool, error) {
 	}
 
 	// 2. Gelen şifreyi aynı salt ve parametrelerle yeniden hashle
-	keyToCheck := argon2.IDKey([]byte(password), salt, argon2Time, argon2Memory, argon2Threads, argon2KeyLen)
+	// 2. Gelen şifreyi aynı salt ve parametrelerle yeniden hashle
+	keyToCheck := argon2.IDKey([]byte(password), salt, time, memory, threads, argon2KeyLen)
 
 	// 3. Karşılaştır (Sabit zamanlı karşılaştırma)
 	if subtle.ConstantTimeCompare(keyToCheck, decodedHash) == 1 {

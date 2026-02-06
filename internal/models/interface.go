@@ -8,17 +8,23 @@ import (
 )
 
 type Interface struct {
-	ID          string `json:"id" db:"id"`
-	DeviceID    string `json:"device_id" db:"device_id"`
-	Name        string `json:"name" db:"name"`                       // e.g., GigabitEthernet0/1
-	IPAddress   string `json:"ip_address,omitempty" db:"ip_address"` // Interface might be L2 (no IP)
-	MACAddress  string `json:"mac_address,omitempty" db:"mac_address"`
-	Speed       string `json:"speed,omitempty" db:"speed"`
-	Type        string `json:"type,omitempty" db:"type"`
-	Description string `json:"description,omitempty" db:"description"`
-	Status      string `json:"status" db:"status"` // e.g., "up", "down"
-	CreatedAt   string `json:"created_at,omitempty" db:"created_at"`
-	UpdatedAt   string `json:"updated_at,omitempty" db:"updated_at"`
+	ID           string `json:"id" db:"id"`
+	DeviceID     string `json:"device_id" db:"device_id"`
+	Name         string `json:"name" db:"name"`
+	IPAddress    string `json:"ip_address,omitempty" db:"ip_address"`
+	MACAddress   string `json:"mac_address,omitempty" db:"mac_address"`
+	Speed        string `json:"speed,omitempty" db:"speed"`
+	SpeedMbps    *int   `json:"speed_mbps,omitempty" db:"speed_mbps"`
+	Type         string `json:"type,omitempty" db:"type"`
+	Description  string `json:"description,omitempty" db:"description"`
+	Status       string `json:"status" db:"status"` // oper_status fallback
+	AdminStatus  string `json:"admin_status,omitempty" db:"admin_status"`
+	OperStatus   string `json:"oper_status,omitempty" db:"oper_status"`
+	IfIndex      *int   `json:"ifindex,omitempty" db:"ifindex"`
+	MTU          *int   `json:"mtu,omitempty" db:"mtu"`
+	Mode         string `json:"mode,omitempty" db:"mode"` // access, trunk, routed, svi, lag
+	CreatedAt    string `json:"created_at,omitempty" db:"created_at"`
+	UpdatedAt    string `json:"updated_at,omitempty" db:"updated_at"`
 }
 
 // Validate checks for required fields and logical constraints

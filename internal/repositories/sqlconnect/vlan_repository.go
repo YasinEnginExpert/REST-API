@@ -33,34 +33,65 @@ func (r *VLANRepository) GetAll(filters map[string]string, sorts []string, limit
 	var vlans []models.VLAN
 	for rows.Next() {
 		var v models.VLAN
-		var description sql.NullString
-		if err := rows.Scan(&v.ID, &v.VlanID, &v.Name, &description); err != nil {
+		var description, locationID, subnetCIDR, gatewayIP sql.NullString
+		var createdAt, updatedAt sql.NullTime
+		if err := rows.Scan(&v.ID, &v.VlanID, &v.Name, &description, &locationID, &subnetCIDR, &gatewayIP, &createdAt, &updatedAt); err != nil {
 			return nil, err
 		}
 		v.Description = description.String
+		v.LocationID = locationID.String
+		v.SubnetCIDR = subnetCIDR.String
+		v.GatewayIP = gatewayIP.String
+		v.CreatedAt = formatNullTime(createdAt)
+		v.UpdatedAt = formatNullTime(updatedAt)
 		vlans = append(vlans, v)
 	}
 	return vlans, nil
 }
 
 func (r *VLANRepository) Count(filters map[string]string) (int, error) {
-	query, args := r.filterVLANs(filters)
-	countQuery := strings.Replace(query, "SELECT id, vlan_id, name, description FROM vlans", "SELECT COUNT(*)", 1)
+	// Rebuild query and args to be 100% robust and independent of GetAll's SELECT list
+	query := "SELECT COUNT(*) FROM vlans WHERE 1=1"
+	var args []interface{}
+	var argId = 1
+
+	allowedParams := map[string]string{
+		"vlan_id":     "vlan_id",
+		"name":        "name",
+		"description": "description",
+		"location_id": "location_id",
+		"subnet_cidr": "subnet_cidr",
+		"gateway_ip":  "gateway_ip",
+	}
+
+	for param, value := range filters {
+		if dbField, ok := allowedParams[param]; ok {
+			query += fmt.Sprintf(" AND %s = $%d", dbField, argId)
+			args = append(args, value)
+			argId++
+		}
+	}
 
 	var count int
-	err := r.DB.QueryRow(countQuery, args...).Scan(&count)
+	err := r.DB.QueryRow(query, args...).Scan(&count)
 	return count, err
 }
 
 func (r *VLANRepository) GetByID(id string) (*models.VLAN, error) {
 	var v models.VLAN
-	var description sql.NullString
-	query := "SELECT id, vlan_id, name, description FROM vlans WHERE id = $1"
-	err := r.DB.QueryRow(query, id).Scan(&v.ID, &v.VlanID, &v.Name, &description)
+	var description, locationID, subnetCIDR, gatewayIP sql.NullString
+	var createdAt, updatedAt sql.NullTime
+	query := "SELECT id, vlan_id, name, description, location_id, subnet_cidr, gateway_ip, created_at, updated_at FROM vlans WHERE id = $1"
+	err := r.DB.QueryRow(query, id).Scan(&v.ID, &v.VlanID, &v.Name, &description, &locationID, &subnetCIDR, &gatewayIP, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, err
 	}
 	v.Description = description.String
+	v.LocationID = locationID.String
+	v.SubnetCIDR = subnetCIDR.String
+	v.GatewayIP = gatewayIP.String
+	v.CreatedAt = formatNullTime(createdAt)
+	v.UpdatedAt = formatNullTime(updatedAt)
 	return &v, nil
 }
 
@@ -81,8 +112,8 @@ func (r *VLANRepository) Create(v models.VLAN) (*models.VLAN, error) {
 }
 
 func (r *VLANRepository) Update(v models.VLAN) (int64, error) {
-	query := "UPDATE vlans SET vlan_id=$1, name=$2, description=$3 WHERE id=$4"
-	res, err := r.DB.Exec(query, v.VlanID, v.Name, v.Description, v.ID)
+	query := "UPDATE vlans SET vlan_id=$1, name=$2, description=$3, location_id=$4, subnet_cidr=$5, gateway_ip=$6, updated_at=CURRENT_TIMESTAMP WHERE id=$7"
+	res, err := r.DB.Exec(query, v.VlanID, v.Name, v.Description, v.LocationID, v.SubnetCIDR, v.GatewayIP, v.ID)
 	if err != nil {
 		return 0, err
 	}
@@ -171,13 +202,16 @@ func (r *VLANRepository) BulkDelete(ids []string) error {
 // Helpers
 
 func (r *VLANRepository) filterVLANs(filters map[string]string) (string, []interface{}) {
-	query := "SELECT id, vlan_id, name, description FROM vlans WHERE 1=1"
+	query := "SELECT id, vlan_id, name, description, location_id, subnet_cidr, gateway_ip, created_at, updated_at FROM vlans WHERE 1=1"
 	var args []interface{}
 	argId := 1
 	allowedParams := map[string]string{
 		"vlan_id":     "vlan_id",
 		"name":        "name",
 		"description": "description",
+		"location_id": "location_id",
+		"subnet_cidr": "subnet_cidr",
+		"gateway_ip":  "gateway_ip",
 	}
 	for param, value := range filters {
 		if dbField, ok := allowedParams[param]; ok {
@@ -197,6 +231,9 @@ func (r *VLANRepository) addVLANSorting(query string, sorts []string) string {
 		"vlan_id":     true,
 		"name":        true,
 		"description": true,
+		"location_id": true,
+		"subnet_cidr": true,
+		"gateway_ip":  true,
 	}
 	var orderClauses []string
 	for _, sortParam := range sorts {

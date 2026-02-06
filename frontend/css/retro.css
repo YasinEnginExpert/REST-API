@@ -1,0 +1,208 @@
+:root {
+    --bg-color: #000000;
+    /* Black desktop */
+    --win-gray: #2c2c2c;
+    /* Dark Grey Windows */
+    --win-gray-light: #444444;
+    --win-gray-dark: #1a1a1a;
+    --win-black: #000000;
+    --win-white: #ffffff;
+    --win-blue: #008080;
+    /* Teal headers */
+    --text-primary: #C5E1A5;
+    /* Pistachio Green (Light) */
+    --text-secondary: #FFFFFF;
+    /* White */
+    --text-font: 'Courier New', Courier, monospace;
+}
+
+body {
+    background-color: var(--bg-color);
+    color: var(--text-primary);
+    font-family: var(--text-font);
+    margin: 0;
+    padding: 20px;
+    height: 100vh;
+    box-sizing: border-box;
+    overflow: hidden;
+    /* Prevent body scroll, use window scroll */
+}
+
+/* Utility to make things look like a window */
+.window {
+    background-color: var(--win-gray);
+    box-shadow: inset -1px -1px #0a0a0a, inset 1px 1px #dfdfdf, inset -2px -2px grey, inset 2px 2px #fff;
+    padding: 3px;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.title-bar {
+    background: var(--win-blue);
+    padding: 3px 2px 3px 3px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.title-bar-text {
+    color: var(--text-secondary);
+    font-weight: bold;
+    letter-spacing: 0;
+    margin-left: 2px;
+}
+
+.title-bar-controls button {
+    min-width: 16px;
+    min-height: 14px;
+    padding: 0;
+    margin-left: 2px;
+    font-weight: bold;
+}
+
+.window-body {
+    margin: 10px;
+    flex-grow: 1;
+    display: flex;
+    gap: 10px;
+    overflow: hidden;
+}
+
+/* Sidebar */
+.sidebar {
+    width: 200px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    border-right: 2px solid var(--win-gray-dark);
+    padding-right: 10px;
+}
+
+/* Main Content Area */
+.main-content {
+    flex-grow: 1;
+    background-color: #111;
+    /* Very dark background for content */
+    color: var(--text-primary);
+    box-shadow: inset 1px 1px #000, inset -1px -1px #444;
+    /* Inverted sunken field */
+    padding: 15px;
+    overflow-y: auto;
+}
+
+/* Buttons */
+button {
+    background: var(--win-gray);
+    color: var(--text-secondary);
+    /* White text on buttons */
+    box-shadow: inset 1px 1px #444, inset -1px -1px #000, inset 2px 2px #555, inset -2px -2px #111;
+    border: none;
+    padding: 5px 10px;
+    font-family: var(--text-font);
+    font-weight: bold;
+    cursor: pointer;
+    min-width: 80px;
+}
+
+button:active {
+    box-shadow: inset 1px 1px #000, inset -1px -1px #444;
+    padding: 6px 9px 4px 11px;
+    /* Shift text to look pressed */
+}
+
+button.primary {
+    font-weight: bold;
+}
+
+/* Standard Inputs */
+input,
+select {
+    box-shadow: inset 1px 1px #000, inset -1px -1px #444;
+    border: none;
+    padding: 5px;
+    background: #000;
+    color: var(--text-primary);
+    /* Pistachio text in inputs */
+    font-family: var(--text-font);
+}
+
+/* Data Tables */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 10px;
+}
+
+th {
+    text-align: left;
+    border: 1px solid var(--win-black);
+    background: var(--win-gray);
+    color: var(--text-secondary);
+    box-shadow: inset 1px 1px #444, inset -1px -1px #000;
+    padding: 5px;
+}
+
+td {
+    border: 1px dotted var(--win-gray-light);
+    color: var(--text-primary);
+    padding: 5px;
+}
+
+tr:hover {
+    background-color: var(--win-blue);
+    color: white;
+}
+
+/* Login Screen Centering */
+#login-screen {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 300px;
+    height: auto;
+    z-index: 1000;
+}
+
+.hidden {
+    display: none !important;
+}
+
+.status-bar {
+    margin-top: 5px;
+    border-top: 1px solid var(--win-gray-light);
+    border-left: 1px solid var(--win-gray-light);
+    border-right: 1px solid var(--win-gray-dark);
+    border-bottom: 1px solid var(--win-gray-dark);
+    padding: 2px 5px;
+    font-size: 12px;
+}
+
+/* Dashboard Widgets */
+.dashboard-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+}
+
+.widget {
+    background: var(--win-gray);
+    box-shadow: inset -1px -1px #0a0a0a, inset 1px 1px #fff, inset -2px -2px grey, inset 2px 2px #dfdfdf;
+    padding: 2px;
+}
+
+.widget-header {
+    background: var(--win-blue);
+    color: white;
+    padding: 2px;
+    font-weight: bold;
+    text-align: center;
+}
+
+.widget-body {
+    padding: 15px;
+    text-align: center;
+    font-size: 24px;
+    font-weight: bold;
+}

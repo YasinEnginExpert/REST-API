@@ -183,10 +183,14 @@ func PatchLocation(w http.ResponseWriter, r *http.Request) {
 	}
 
 	allowedFields := map[string]bool{
-		"name":    true,
-		"city":    true,
-		"country": true,
-		"address": true,
+		"name":      true,
+		"city":      true,
+		"country":   true,
+		"address":   true,
+		"site_code": true,
+		"timezone":  true,
+		"lat":       true,
+		"lon":       true,
 	}
 
 	// VALIDATION
@@ -235,10 +239,14 @@ func BulkPatchLocations(w http.ResponseWriter, r *http.Request) {
 	}
 
 	allowedFields := map[string]bool{
-		"name":    true,
-		"city":    true,
-		"country": true,
-		"address": true,
+		"name":      true,
+		"city":      true,
+		"country":   true,
+		"address":   true,
+		"site_code": true,
+		"timezone":  true,
+		"lat":       true,
+		"lon":       true,
 	}
 
 	// Pre-validate

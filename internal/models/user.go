@@ -5,19 +5,21 @@ import (
 	"strings"
 )
 
-// User represents a system user (corresponds to Exec struct concept)
+// User represents a system user (admin | operator | viewer)
 type User struct {
 	ID                string `json:"id" db:"id"`
 	FirstName         string `json:"first_name" db:"first_name"`
 	LastName          string `json:"last_name" db:"last_name"`
 	Email             string `json:"email" db:"email"`
 	Username          string `json:"username" db:"username"`
-	Password          string `json:"password,omitempty" db:"password"` // Hashed, omitempty to avoid leaking in responses
+	Password          string `json:"password,omitempty" db:"password"`
 	PasswordChangedAt string `json:"password_changed_at,omitempty" db:"password_changed_at"`
 	UserCreatedAt     string `json:"user_created_at" db:"user_created_at"`
 	PasswordResetCode string `json:"password_reset_code,omitempty" db:"password_reset_code"`
 	InactiveStatus    bool   `json:"inactive_status" db:"inactive_status"`
 	Role              string `json:"role" db:"role"`
+	LastLogin         string `json:"last_login,omitempty" db:"last_login"`
+	MFAEnabled        bool   `json:"mfa_enabled" db:"mfa_enabled"`
 }
 
 // Validate checks for required fields

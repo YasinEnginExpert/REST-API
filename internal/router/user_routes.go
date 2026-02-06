@@ -12,10 +12,11 @@ func RegisterUserRoutes(router *mux.Router) {
 	users := router.PathPrefix("/users").Subrouter()
 
 	// Public Routes
-	users.HandleFunc("", handlers.CreateUser).Methods("POST")
-	users.HandleFunc("/login", handlers.LoginHandler).Methods("POST")
-	users.HandleFunc("/forgot-password", handlers.ForgotPassword).Methods("POST")
-	users.HandleFunc("/reset-password/{resetCode}", handlers.ResetPasswordHandler).Methods("POST")
+	// Public Routes - Register directly on root router to avoid middleware pollution
+	router.HandleFunc("/users", handlers.CreateUser).Methods("POST")
+	router.HandleFunc("/users/login", handlers.LoginHandler).Methods("POST")
+	router.HandleFunc("/users/forgot-password", handlers.ForgotPassword).Methods("POST")
+	router.HandleFunc("/users/reset-password/{resetCode}", handlers.ResetPasswordHandler).Methods("POST")
 
 	// Protected Routes (Require Authentication)
 	protected := users.PathPrefix("").Subrouter()
