@@ -12,15 +12,22 @@
 ## Table of Contents
 
 - [Executive Summary](#executive-summary)
+- [Quick Snapshot (Cheat Sheet)](#quick-snapshot-cheat-sheet)
 - [System Model & Architecture](#system-model--architecture)
 - [Key Features](#key-features)
 - [Technology Stack](#technology-stack)
+- [Configuration & Environment](#configuration--environment)
+- [Repository Map (Quick View)](#repository-map-quick-view)
 - [Getting Started](#getting-started)
 - [Quick Reference](#quick-reference)
+- [API Playbook (cURL)](#api-playbook-curl)
+- [HTTP Lifecycle Visualization (Frontend)](#http-lifecycle-visualization-frontend)
 - [Postman API Guide](#postman-api-guide)
 - [Tutorial: Full Lifecycle](#tutorial-full-entity-lifecycle-step-by-step)
 - [Security & Validation](#security--validation)
 - [Postman Pro Tips](#postman-pro-automation--scripting)
+- [Testing & Quality](#testing--quality)
+- [Troubleshooting](#troubleshooting)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -37,112 +44,89 @@ Ideally suited for:
 
 ---
 
+## Quick Snapshot (Cheat Sheet)
+- Run: `make start` (Docker) or `make run` (local Postgres).
+- Login: `POST /users/login` → keep the token in `Authorization: Bearer <token>`; cookie only persists over HTTPS.
+- Base URL: `http://localhost:3000` (versionless).
+- Seed users (password `admin` for all): `admin`, `editor`, `viewer`.
+- UI & animation: `http://localhost` → open HTTP Lifecycle from the Docs link.
+- Data scale: seed now ships 500 devices / ~1000 interfaces, 200 VLANs; every list supports `page`/`limit` + multi `sortby`.
+
+---
+
 ## System Model & Architecture
 
-The following diagram illustrates the **Layered Architecture** of the system, demonstrating the separation of concerns between presentation, application logic, and data persistence layers.
+API runs on **HTTP :3000** by default; TLS is optional (`make gen-certs` + `ListenAndServeTLS`). Frontend and docs are served by Nginx on **:80**.
 
 ```mermaid
 graph TB
-    %% Styles
     classDef client fill:#f9f9f9,stroke:#333,stroke-width:2px,rx:5;
-    classDef security fill:#e1f5fe,stroke:#0277bd,stroke-width:2px,rx:5;
+    classDef mid fill:#e1f5fe,stroke:#0288d1,stroke-width:2px,rx:5;
     classDef app fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,rx:5;
-    classDef data fill:#fff3e0,stroke:#ef6c00,stroke-width:2px,rx:0;
-    classDef external fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,rx:5;
+    classDef data fill:#fff3e0,stroke:#ef6c00,stroke-width:2px,rx:5;
 
-    %% --- External World ---
-    subgraph "External Clients"
-        direction TB
-        Admin(["System Administrator (HTTPS)"])
-        Auto(["Automation / CI/CD Pipeline (JSON)"])
+    subgraph Clients
+        Web["Frontend (Nginx :80)"]:::client
+        Postman["Postman / curl"]:::client
     end
 
-    %% --- Container Boundary ---
-    subgraph "Docker Container: restapi-app"
-        direction TB
-
-        Inbound["Ingress Encrypted Port (3000)"]
-
-        %% 1. Middleware Pipeline
-        subgraph "Middleware Chain (Sequential Processing)"
-            direction TB
-            MW_Net["1. Context & Network<br/>(RealIP, RequestID)"]:::security
-            MW_Protect["2. Guard Rails<br/>(RateLimit, HPP Rejection)"]:::security
-            MW_Hard["3. Security Hardening<br/>(SecHeaders, FetchMetadata, CORS)"]:::security
-            MW_Obs["4. Observability<br/>(Logger, Recovery, X-Response-Time)"]:::security
-            MW_Opt["5. Optimization<br/>(Gzip Compression)"]:::security
+    subgraph "API :3000 (HTTP, TLS-ready)"
+        CORS["CORS allow-list<br/>(localhost/127.0.0.1 dev ports)"]:::mid
+        subgraph "Middleware Stack"
+            RealIP["RealIP + RequestID"]:::mid
+            Rate["RateLimit 100/min"]:::mid
+            HPP["HPP (allow: sortby, tags)"]:::mid
+            SecHdr["SecurityHeaders + CSP/HSTS"]:::mid
+            Sanitize["bluemonday sanitize"]:::mid
+            FetchMD["Fetch-Metadata CSRF guard"]:::mid
+            Logger["Logger + Recovery + X-Response-Time"]:::mid
+            Gzip["Compression (gzip)"]:::mid
         end
-
-        %% 2. Router
-        Router("Request Router (Gorilla Mux)"):::app
-
-        %% 3. Control Plane
-        subgraph "Control Plane (Handlers)"
-            H_Auth["Auth Controller<br/>(Login, Password Reset)"]:::app
-            H_Dev["Resource Controller<br/>(Devices, Interfaces)"]:::app
-            H_Net["Network Controller<br/>(VLANs, Locations)"]:::app
-        end
-        
-        %% 4. Data Access
-        subgraph "Data Access Layer"
-            Repo_User["User Repository<br/>(SQL Builder)"]:::app
-            Repo_Dev["Device Repository<br/>(SQL Builder)"]:::app
-            Repo_Net["Network Repository<br/>(SQL Builder)"]:::app
+        Router["Gorilla Mux"]:::app
+        subgraph Controllers
+            Auth["Users/Auth"]:::app
+            Dev["Devices"]:::app
+            Ifc["Interfaces"]:::app
+            Loc["Locations"]:::app
+            Vlan["VLANs"]:::app
+            Link["Links"]:::app
+            Event["Events"]:::app
+            Metric["Metrics"]:::app
+            Audit["Audit Logs"]:::app
+            Debug["/debug/count"]:::app
         end
     end
 
-    %% --- Persistence ---
-    subgraph "Persistence Infrastructure"
-        DB[("PostgreSQL 15 Cluster<br/>(Structured Data)")]:::data
-        Mail["MailHog SMTP Service<br/>(Async Notification)"]:::external
+    subgraph Persistence
+        DB[("PostgreSQL 15<br/>schema.sql + seed.sql")]:::data
+        Mail["MailHog SMTP (1025/8025)"]:::data
     end
 
-    %% --- Flow Connections ---
-    Admin & Auto -->|TLS 1.2+| Inbound
-    Inbound --> MW_Net
-    MW_Net --> MW_Protect
-    MW_Protect --> MW_Hard
-    MW_Hard --> MW_Obs
-    MW_Obs --> MW_Opt
-    MW_Opt -->|Normalized Request| Router
-
-    Router -->|Route: /users/*| H_Auth
-    Router -->|Route: /devices/*| H_Dev
-    Router -->|Route: /vlans/*| H_Net
-
-    H_Auth --> Repo_User
-    H_Dev --> Repo_Dev
-    H_Net --> Repo_Net
-
-    H_Auth -.->|SMTP/TCP 1025| Mail
-    
-    Repo_User & Repo_Dev & Repo_Net -->|"TCP 5432 (LibPQ)"| DB
-    
-    %% Semantic Class Assignments
-    class Admin,Auto,Inbound client;
+    Web -->|XHR /devices| CORS
+    Postman --> CORS
+    CORS --> RealIP --> Rate --> HPP --> SecHdr --> Sanitize --> FetchMD --> Logger --> Gzip --> Router
+    Router --> Auth & Dev & Ifc & Loc & Vlan & Link & Event & Metric & Audit & Debug
+    Auth -.-> Mail
+    Auth --> DB
+    Dev & Ifc & Loc & Vlan & Link & Event & Metric & Audit --> DB
 ```
 
 ---
 
 ## Key Features
 
-*   **Blazing Fast**: Native implementation in Go without heavy frameworks.
-*   **Secure by Design**:
-    *   **TLS 1.2+ Enforcement**: No insecure connections. All endpoints are HTTPS.
-    *   **Modern Auth**: JWT-ready structure with Argon2id password hashing.
-    *   **Rate Limiting**: IP-based throttling to prevent abuse.
-    *   **Security Headers**: Protecting against XSS, Clickjacking, and Sniffing.
-*   **Docker Native**: Ready to deploy with a single command via Docker Compose.
-*   **Massive Scalability**: Tested with generated datasets of 1000+ interfaces.
-*   **Advanced Filtering**: Granular search capabilities on every resource.
-*   **Standardized API**: Consistent JSON responses and error handling.
-*   **Audit Ready**: Detailed logging of every request's duration and status.
-*   **Full Observability**: Integrated **Request ID** tracing and **Real IP** resolution.
-*   **RFC Compliance**: Strictly standardized JSON error responses (RFC 8259).
-*   **Pagination**: Efficient data retrieval with `page` and `limit` parameters for all list endpoints.
-*   **Compression**: **Gzip** support for efficient bandwidth usage.
-*   **HPP Protection**: Prevents HTTP Parameter Pollution attacks with strict validation.
-*   **Precision Timing**: Ends every response with a microsecond-precision `X-Response-Time` header.
+* **Blazing Fast**: Native Go, Gorilla Mux, gzip by default.
+* **Security Stack (HTTP default, TLS optional)**:
+  * JWT + Argon2id; all protected routes behind `AuthMiddleware`.
+  * RealIP, RequestID, rate limit (100 req/min), HPP allow-list (`sortby`, `tags`).
+  * SecurityHeaders (CSP, HSTS, COOP/COEP/CORP, X-Frame-Options), Fetch-Metadata, strict bluemonday sanitization.
+  * CORS allow-list for localhost/127.0.0.1 dev ports; credentials supported.
+  * Logger + panic recovery + `X-Response-Time` header.
+* **Docker Native**: Compose brings API + Postgres + PgAdmin + MailHog + static frontend.
+* **Seeded at Scale**: `migrations/seed.sql` loads 10k devices / 20k interfaces.
+* **Advanced Filtering & Sorting**: Filters + multi `sortby` on every list endpoint.
+* **Pagination**: `page`/`limit` (max 100) with meta + data wrapper.
+* **Audit & Metrics**: Audit log (admin), metrics endpoints for latest device stats.
 
 ---
 
@@ -158,7 +142,7 @@ All list endpoints (`GET /devices`, `GET /users`, etc.) support pagination to ha
 | `limit` | `int` | `10` | The number of items per page (Max: 100). |
 
 **Example:**
-`GET https://localhost:3000/devices?page=2&limit=5`
+`GET http://localhost:3000/devices?page=2&limit=5`
 
 ### Response Structure
 
@@ -191,6 +175,29 @@ The response for list endpoints is wrapped in a standard structure containing me
 
 ---
 
+## Configuration & Environment
+- **ENV (.env)**: `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `PGADMIN_*`. API also reads `DB_*`, `JWT_SECRET`, `MAIL_*` (see `internal/config/config.go`).
+- **Ports**: API 3000, Frontend 80, PgAdmin 5050, MailHog 1025/8025.
+- **TLS**: Default is HTTP. Generate certs via `make gen-certs`; then run with `ListenAndServeTLS` (self-signed in dev).
+- **JWT**: Secret + expiry from env (`JWT_SECRET`, `JWT_EXPIRATION`, default 24h). Cookie is `Secure=true` → browsers ignore it on plain HTTP.
+- **Seed Data**: `migrations/seed.sql` loads 24 users, 17 locations, 500 devices, ~1000 interfaces, 200 VLANs, links, event/metric samples.
+- **RBAC**: Mutations require admin; links allow admin|editor; user routes allow owner or admin.
+
+---
+
+## Repository Map (Quick View)
+- `cmd/api/main.go` — config load, DB existence check, migrations, server bootstrap.
+- `internal/router/*.go` — resource-based routes + middleware stack.
+- `internal/api/handlers/*` — HTTP handlers: validation, repository calls, JSON responses.
+- `internal/repositories/sqlconnect/*` — SQL builder, CRUD, filtering/sorting/paging.
+- `internal/api/middlewares/*` — Auth, RateLimit, HPP, SecurityHeaders, Fetch-Metadata, bluemonday sanitize, CORS.
+- `internal/models/*` — data models + `Validate()` rules.
+- `pkg/utils/*` — JWT, Argon2id, pagination, errors, random code.
+- `migrations/schema.sql` & `migrations/seed.sql` — schema + demo data.
+- `frontend/` — Nginx-served UI; `frontend/docs/http-lifecycle-animation.html` visualization.
+
+---
+
 ## Getting Started
 
 ### Prerequisites
@@ -209,11 +216,15 @@ make start
 ```
 
 This will:
-1.  Spin up Postgres and PgAdmin containers.
-2.  Wait for the database to be healthy.
-3.  **Automatically run migrations** (`init.sql`) to create tables.
-4.  **Seed the database** (`seed.sql`) with massive data sets (Locations, Devices, Interfaces).
-5.  Start the API server at `https://localhost:3000`.
+1.  Start Postgres, PgAdmin, MailHog, API, and frontend containers.
+2.  Wait for the Postgres healthcheck.
+3.  Apply `migrations/schema.sql` (API also checks on startup).
+4.  Load `migrations/seed.sql` (users, locations, 10k devices, 20k interfaces, VLANs, links).
+5.  Services exposed:
+    - API: `http://localhost:3000` (HTTP; enable `ListenAndServeTLS` for HTTPS)
+    - Frontend + docs: `http://localhost`
+    - PgAdmin: `http://localhost:5050`
+    - MailHog UI: `http://localhost:8025`
 
 ### Other Commands
 
@@ -258,7 +269,7 @@ We provide three distinct ways to run this application, depending on your needs:
 **Best for:** Production simulation, ease of use, zero dependency hell.
 *   **How:** `make up`
 *   **Why:** Runs everything (Postgres, MailHog, PgAdmin, API) in isolated containers. No local Go or Postgres installation required.
-*   **Access:** API at `https://localhost:3000` (Mapped from container port 3000).
+*   **Access:** API `http://localhost:3000`, frontend/docs `http://localhost`.
 
 ### 2. Local Development Mode
 **Best for:** Rapid coding, debugging, and testing changes instantly.
@@ -277,12 +288,88 @@ We provide three distinct ways to run this application, depending on your needs:
 
 ## Quick Reference
 
-*   **Base URL:** `https://localhost:3000`
-*   **TLS/SSL:** Self-signed certificates (use `-k` in curl or disable verification in Postman).
-*   **Admin Credentials:**
-    *   **Username:** `admin`
-    *   **Password:** `admin123`
-*   **ID Format:** Standard **UUIDs** (e.g., `550e8400-e29b-41d4-a716-446655440000`).
+* **Base URL:** `http://localhost:3000` (versionless). Enable TLS if needed.
+* **Frontend/docs:** `http://localhost` (Nginx).
+* **Seed Users** (password `admin` for all, see `migrations/seed.sql`):
+  * `admin` (role: admin)
+  * `editor` (role: editor)
+  * `viewer` (role: viewer)
+* **Auth header:** `Authorization: Bearer <token>` (cookie is `Secure=true`; on HTTP always send the header).
+* **ID Format:** UUID (e.g., `550e8400-e29b-41d4-a716-446655440000`).
+
+---
+
+## API Playbook (cURL)
+
+### Login
+```bash
+curl -X POST http://localhost:3000/users/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin"}'
+```
+
+### Devices
+- List (filters + multi-sort):
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:3000/devices?vendor=Cisco&status=active&sortby=hostname:asc&sortby=last_seen:desc&page=1&limit=20"
+```
+- Create:
+```bash
+curl -X POST http://localhost:3000/devices \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"hostname":"nyc-core-01","ip":"10.0.0.1","model":"ASR 9000","vendor":"Cisco","os":"IOS-XR","status":"active","location_id":"<LOC_UUID>"}'
+```
+- Partial update (PATCH):
+```bash
+curl -X PATCH http://localhost:3000/devices/<DEV_UUID> \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"status":"maintenance","role":"core"}'
+```
+
+### Interfaces
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:3000/interfaces?speed=400Gbps&status=up&sortby=name:asc"
+```
+
+### Locations
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:3000/locations?country=Turkey&sortby=city:asc"
+```
+
+### VLANs
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:3000/vlans?vlan_id=100&sortby=name:asc"
+```
+
+### Links (admin|editor)
+```bash
+curl -X POST http://localhost:3000/links \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"a_interface_id":"<IF_A>","b_interface_id":"<IF_B>","type":"fiber","status":"up"}'
+```
+
+### Users (admin)
+```bash
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:3000/users?page=1&limit=20"
+```
+
+---
+
+## HTTP Lifecycle Visualization (Frontend)
+- Open the interactive flow at `http://localhost/docs/http-lifecycle-animation.html` after `make up`.
+- Stage data: `frontend/docs/js/data.js`; player logic: `frontend/docs/js/app.js`.
+- Keep it in sync with the API:
+  - Paths are versionless: `/devices`, `/users/login`, `/interfaces`, etc. Base: `http://localhost:3000`.
+  - Default transport is HTTP; update TLS notes if you enable HTTPS.
+  - Middleware order: CORS -> RealIP -> RequestID -> RateLimit -> HPP (`sortby`,`tags`) -> SecurityHeaders -> Sanitize -> FetchMetadata -> Logger -> Compression -> Router -> Handler -> PostgreSQL.
+- Avoid inline scripts in stage HTML; the viewer sanitizes content before rendering.
 
 ---
 
@@ -296,9 +383,11 @@ Content-Type: application/json
 
 {
   "username": "admin",
-  "password": "admin123"
+  "password": "admin"
 }
 ```
+
+> Use the token from the response body in the `Authorization: Bearer <token>` header. The cookie is `Secure=true`, so browsers ignore it on plain HTTP—use HTTPS or stick to the header.
 
 **Logout** (Clear Session)
 ```http
@@ -546,12 +635,35 @@ Full CRUD support for physical link management between interfaces.
     }
     ```
 
+**Audit Logs (Admin Only)**
+Track all critical system modifications.
+*   **List Logs**:
+    ```http
+    GET /audit-logs?page=1&limit=20
+    Authorization: Bearer <admin_token>
+    ```
+
 **Performance Metrics**
-*   **System Overview**: `GET /metrics`
-*   **Device Specific**: `GET /metrics/device/{id}`
+*   **System Overview**:
+    ```http
+    GET /metrics?sort=value:desc
+    Authorization: Bearer <token>
+    ```
+*   **Device Specific**:
+    ```http
+    GET /metrics/device/{id}
+    Authorization: Bearer <token>
+    ```
 
 **Utilities & Debug**
-*   **Debug Location Count**: `GET /debug/count`
+*   **Debug Location Count** (Public Utility):
+    ```http
+    GET /debug/count
+    ```
+    *Response:*
+    ```json
+    { "count": 15 }
+    ```
 
 ---
 
@@ -578,7 +690,7 @@ GET /users
 ```
 *Response:*
 ```json
-{ "status": "error", "message": "Missing Authorization header" }
+{ "status": "error", "message": "Unauthorized: No security token provided" }
 ```
 
 **404 Not Found** (Invalid UUID)
@@ -627,7 +739,7 @@ DELETE /locations/uuid
 ```
 *Response:*
 ```json
-{ "status": "error", "message": "Permission denied" }
+{ "status": "error", "message": "Forbidden: You do not have permission to perform this action" }
 ```
 
 **409 Conflict** (Duplicate Resource)
@@ -703,7 +815,7 @@ GET /interfaces?mac_address=00:1A:2B:3C:4D:5E
 | **Turkey Hub Multi-Sort**          | `GET`  | `/locations?country=Turkey&sortby=city:asc&sortby=name:desc`                          |
 | **FinTech VLANs (High ID First)**  | `GET`  | `/vlans?name=HFT&sortby=vlan_id:desc`                                                 |
 | **Bulk Interface Shutdown**        | `PATCH`| `/interfaces` (With JSON Body Array)                                                  |
-| **Total Inventory Purge (Nuclear)**| `DEL`  | `/locations/{UUID}` (Cascade delete enabled in DB)                                    |
+| **Delete Location (keeps devices)** | `DELETE` | `/locations/{UUID}` (`location_id` set to NULL; devices remain) |
 
 
 ---
@@ -867,25 +979,16 @@ DELETE /vlans/{UUID}
 
 This project implements industry-standard security practices and strict data validation to ensure network integrity.
 
-### 1. Security Overview
-- **Strict Transport Security (HSTS)**: Enforced TLS 1.2+ encryption (`max-age=31536000`).
-- **Modern CSRF Protection**: Implements **Fetch Metadata** resource isolation to block cross-site state-changing requests.
-- **HPP Protection**: Strict checking for duplicate query parameters (Allow-list based).
-- **Smart Rate Limiting**: IP-based sliding window (`100 req/min`) with port stripping and memory cleanup.
-- **Cross-Origin Isolation**:
-    - `Cross-Origin-Opener-Policy`: same-origin
-    - `Cross-Origin-Resource-Policy`: same-origin
-    - `Cross-Origin-Embedder-Policy`: require-corp
-- **Browser Hardening**:
-    - `X-XSS-Protection`: 1; mode=block
-    - `X-Content-Type-Options`: nosniff
-    - `X-Frame-Options`: DENY (Prevents Clickjacking)
-    - `Referrer-Policy`: strict-origin-when-cross-origin
-    - `Permissions-Policy`: Camera, Mic, Geolocation disabled.
-- **SQL Injection Prevention**: All queries use **Parameterized Queries ($1, $2)**.
-- **XSS Protection**: Integrated `bluemonday` sanitization for all JSON and Form-data inputs.
-- **RBAC (Role-Based Access Control)**: Granular permission system (Admin vs. User vs. Owner).
-- **Bulk Operations**: Batch Patch/Delete support for inventory resources (Devices, Interfaces, Locations, VLANs).
+- **Transport**: API on HTTP :3000. HSTS header is set; use `ListenAndServeTLS` + `make gen-certs` if you need HTTPS.
+- **CORS**: Allow-list (localhost/127.0.0.1 dev ports, https://localhost:3000). Unknown origins get 403.
+- **Rate Limiting**: 100 req/min per IP, with `X-RateLimit-*` + `Retry-After`.
+- **HPP**: Blocks duplicate query params except `sortby` and `tags`.
+- **Sanitization**: bluemonday (strict), 1MB body cap; rejects if sanitization changes input.
+- **Fetch Metadata**: Modern CSRF guard; blocks cross-site state-changing requests.
+- **Security Headers**: CSP, X-Frame-Options: DENY, X-Content-Type-Options: nosniff, Permissions-Policy (camera/mic/geo off), COOP/COEP/CORP, Referrer-Policy: strict-origin-when-cross-origin, HSTS.
+- **Logging & Observability**: Real IP + Request ID, panic recovery, `X-Response-Time`.
+- **RBAC**: Mutations via `RequireRole("admin")`; links allow `admin|editor`; user routes use `RequireOwnerOrAdmin`.
+- **Auth Tokens**: JWT secret from env; cookie `HttpOnly`, `SameSite=Strict`, `Secure=true`. On HTTP, always send the header.
 
 ### 2. Role-Based Access Control (RBAC)
 
@@ -1027,7 +1130,7 @@ Level up your API testing by using Postman's built-in automation features.
 
 ### A. Environment Variables
 Instead of hardcoding URLs, use environments (the eye icon top-right).
-- **Variable**: `base_url` -> `https://localhost:3000`
+- **Variable**: `base_url` -> `http://localhost:3000`
 - **Variable**: `bearer_token` -> (leave empty, will be auto-filled)
 
 ### B. Auto-Save Token (Tests Script)
@@ -1082,11 +1185,27 @@ pm.variables.set("dynamic_hostname", "rtr-automated-" + randomSuffix);
 ---
 
 ## Postman Usage Tips
-1.  **SSL Verification**: Go to Postman `Settings` > `General` and turn **OFF** `SSL certificate verification` to allow self-signed local certs.
+1.  **SSL Verification**: Disable only if you enable HTTPS with self-signed certs; default setup is HTTP.
 2.  **Auth (Next Step)**: Copy the `token` from the login response. In other requests, go to the `Auth` tab, select `Bearer Token`, and paste it. 
     > [!TIP]
     > If you used the **Auto-Save Token** script above, just type `{{bearer_token}}` in the Token field!
-3.  **Collection Variables**: Create a variable called `base_url` with value `https://localhost:3000`. Use `{{base_url}}/devices` to save time.
+3.  **Collection Variables**: `base_url = http://localhost:3000`. Use `{{base_url}}/devices`.
+
+---
+
+## Testing & Quality
+- Unit tests: `go test ./... -v`
+- Static analysis: `make vet`
+- Format: `make fmt`
+- Build sanity: `make build`
+- Watch logs: `make logs` (API, Postgres, MailHog together)
+
+## Troubleshooting
+- **401 / 403**: Missing/expired token or insufficient role (mutations require admin; links admin|editor).
+- **CORS 403**: Origin not in allow-list. Check the `Origin` header.
+- **Cookie missing**: `Secure=true`; browsers drop it on HTTP. Send the token in the header or enable HTTPS.
+- **Duplicate query param error**: HPP allows multi-values only for `sortby` and `tags`.
+- **Self-signed HTTPS**: After `make gen-certs`, disable SSL verification in Postman or use `curl -k`.
 
 ---
 
@@ -1102,13 +1221,14 @@ We welcome contributions! Please follow the standard "Fork & Pull Request" workf
 
 ---
 
+<br>
+<div align="center">
+  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:00ADD8,100:4169E1&height=200&section=footer&text=Created%20by%20Yasin%20Engin%20via%20Netreka%20Akademi&fontSize=25&fontColor=ffffff&fontAlign=50&fontAlignY=40" alt="Footer Visualization" width="100%"/>
+</div>
+
 ## License
 
 Distributed under the MIT License. See `LICENSE` for more information.
 
 ---
 
-<br>
-<div align="center">
-  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:00ADD8,100:4169E1&height=200&section=footer&text=Created%20by%20Yasin%20Engin%20via%20Netreka%20Akademi&fontSize=25&fontColor=ffffff&fontAlign=50&fontAlignY=40" alt="Footer Visualization" width="100%"/>
-</div>
