@@ -17,8 +17,29 @@
     <div class="container">
         <header>
             <h1>HTTP İstek Yaşam Döngüsü</h1>
-            <p>Bir API isteğinin ağ katmanlarından PostgreSQL veritabanına kadar olan tam teknik yolculuğu.</p>
+            <p>Bir API isteğinin istemciden başlayıp ağ katmanları, güvenlik, sunucu ve veritabanına kadar uzanan
+                teknik yolculuğunu adım adım görselleştirir.</p>
         </header>
+
+        <section class="intro-grid">
+            <div class="intro-card">
+                <div class="intro-title">Amaç</div>
+                <p>İstek akışındaki kritik noktaları görünür kılmak: paketleme, TLS, middleware, handler ve DB
+                    etkileşimleri.</p>
+            </div>
+            <div class="intro-card">
+                <div class="intro-title">Nasıl Kullanılır</div>
+                <ul>
+                    <li>Metodu seç ve “Animasyonu Başlat” ile akışı başlat.</li>
+                    <li>Dil sekmesiyle kod örneklerini değiştir.</li>
+                    <li>Geri/İleri ile adım adım derinlemesine incele.</li>
+                </ul>
+            </div>
+            <div class="intro-card">
+                <div class="intro-title">Notlar</div>
+                <p>Zamanlamalar ve değerler örneklidir; amaç mimariyi ve veri yolculuğunu anlaşılır kılmaktır.</p>
+            </div>
+        </section>
 
         <div class="lang-selector">
             <button class="lang-btn active" data-lang="go">Go</button>
@@ -63,9 +84,22 @@
             </div>
         </div>
 
+        <div class="legend">
+            <span class="legend-item">İstemci</span>
+            <span class="legend-item">OSI / Paket</span>
+            <span class="legend-item">TLS / Güvenlik</span>
+            <span class="legend-item">Sunucu & Router</span>
+            <span class="legend-item">Middleware</span>
+            <span class="legend-item">Handler</span>
+            <span class="legend-item">Veritabanı</span>
+            <span class="legend-item">Yanıt</span>
+        </div>
+
         <div class="animation-area">
             <aside class="side-panel">
                 <h3>Teknik Detaylar</h3>
+                <p class="panel-hint">Her adımda RFC notları, header/payload analizi ve projeye uygun kod örnekleri
+                    bulunur.</p>
                 <div id="technicalDetails">
                     <div style="opacity: 0.5;">Analiz için "Animasyonu Başlat" butonuna tıklayın.</div>
                 </div>
@@ -85,6 +119,7 @@
 
             <aside class="side-panel">
                 <h3>Aktif Bileşen</h3>
+                <p class="panel-hint">İstek akışı boyunca hangi katmanın aktif olduğunu burada takip edebilirsin.</p>
                 <div id="activeComponent">
                     <div style="opacity: 0.5;">Sistem beklemede...</div>
                 </div>

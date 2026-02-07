@@ -249,7 +249,6 @@ function initGlobalEvents() {
         if (icon) icon.className = store.theme === 'light' ? 'fa-solid fa-moon' : 'fa-solid fa-sun';
     }
 
-
     // Forgot Password Flow
     const forgotLink = document.getElementById('link-forgot-pass');
     if (forgotLink) {

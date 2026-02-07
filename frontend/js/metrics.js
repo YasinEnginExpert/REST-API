@@ -21,17 +21,18 @@ export async function renderMetrics(container) {
 
 async function loadMetrics() {
     try {
-        const res = await api.getMetrics({ limit: 1000, sort: 'timestamp:desc' });
+        const res = await api.getMetrics({ limit: 1000 });
         const metrics = res.data || [];
 
         UI.createTable('#metrics-table', metrics, [
-            { title: "Device ID", field: "device_id", width: 150 },
-            { title: "Metric Type", field: "metric_type", width: 150, formatter: typeFormatter },
-            { title: "Value", field: "value", width: 120, formatter: valueFormatter },
-            { title: "Unit", field: "unit", width: 100 },
-            { title: "Timestamp", field: "timestamp", width: 180 },
+            { title: "Device ID", field: "device_id", width: 160 },
+            { title: "CPU %", field: "cpu", width: 110, formatter: percentFormatter },
+            { title: "Memory %", field: "memory", width: 120, formatter: percentFormatter },
+            { title: "Temp (C)", field: "temp", width: 120, formatter: tempFormatter },
+            { title: "Uptime", field: "uptime_seconds", width: 140, formatter: uptimeFormatter },
+            { title: "Timestamp", field: "ts", width: 180, formatter: tsFormatter },
         ], {
-            initialSort: [{ column: "timestamp", dir: "desc" }]
+            initialSort: [{ column: "ts", dir: "desc" }]
         });
     } catch (err) {
         console.error(err);
@@ -39,26 +40,51 @@ async function loadMetrics() {
     }
 }
 
-function typeFormatter(cell) {
+function percentFormatter(cell) {
     const val = cell.getValue();
-    let icon = 'fa-chart-bar';
-    if (val === 'cpu_usage') icon = 'fa-microchip';
-    if (val === 'memory_usage' || val === 'ram') icon = 'fa-memory';
-    if (val === 'temperature') icon = 'fa-thermometer-half';
-    if (val === 'availability') icon = 'fa-heartbeat';
+    if (val === null || val === undefined || val === '') return '-';
+    const num = Number(val);
+    if (Number.isNaN(num)) return '-';
 
-    return `<i class="fa-solid ${icon}" style="margin-right:8px; opacity:0.7;"></i>${val}`;
+    let color = 'var(--text-primary)';
+    if (num >= 80) color = 'var(--danger)';
+    else if (num >= 60) color = 'var(--warning)';
+    else color = 'var(--success)';
+
+    return `<span style="color:${color}; font-weight:600;">${num.toFixed(1)}%</span>`;
 }
 
-function valueFormatter(cell) {
+function tempFormatter(cell) {
     const val = cell.getValue();
-    const row = cell.getData();
+    if (val === null || val === undefined || val === '') return '-';
+    const num = Number(val);
+    if (Number.isNaN(num)) return '-';
+
     let color = 'var(--text-primary)';
+    if (num >= 85) color = 'var(--danger)';
+    else if (num >= 75) color = 'var(--warning)';
 
-    // Simple threshold checking
-    if (row.metric_type === 'cpu_usage' && val > 80) color = 'var(--danger)';
-    if (row.metric_type === 'temperature' && val > 75) color = 'var(--warning)';
-    if (row.metric_type === 'availability' && val < 100) color = 'var(--danger)';
+    return `<span style="color:${color}; font-weight:600;">${num.toFixed(1)}°C</span>`;
+}
 
-    return `<span style="color:${color}; font-weight:bold;">${val}</span>`;
+function uptimeFormatter(cell) {
+    const val = cell.getValue();
+    if (val === null || val === undefined || val === '') return '-';
+    const seconds = Math.max(0, Number(val));
+    if (Number.isNaN(seconds)) return '-';
+
+    const d = Math.floor(seconds / 86400);
+    const h = Math.floor((seconds % 86400) / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+
+    if (d > 0) return `${d}d ${h}h`;
+    if (h > 0) return `${h}h ${m}m`;
+    return `${m}m`;
+}
+
+function tsFormatter(cell) {
+    const val = cell.getValue();
+    if (!val) return '-';
+    if (typeof dayjs !== 'undefined') return dayjs(val).format('YYYY-MM-DD HH:mm:ss');
+    return new Date(val).toLocaleString();
 }

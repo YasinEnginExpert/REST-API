@@ -1,6 +1,6 @@
 -- 0. CLEAN SLATE (Idempotency)
 -- Using CASCADE to handle dependencies automatically
-TRUNCATE TABLE users, locations, devices, vlans, interfaces, links, events, device_metrics, audit_logs CASCADE;
+TRUNCATE TABLE users, locations, devices, vlans, interfaces, interface_vlans, links, events, device_metrics, audit_logs, user_location_access CASCADE;
 
 -- ==================================================================================
 -- 1. IDENTITY & ACCESS (Users)
@@ -52,6 +52,28 @@ INSERT INTO locations (name, city, country, address, site_code, timezone, lat, l
 ('Istanbul Branch - Kadikoy',     'Istanbul',  'Turkey', 'Bagdat Caddesi No:45',           'IST-BR',   'Europe/Istanbul', 40.9819, 29.0496),
 ('Ankara Main Office - Sogutozu', 'Ankara',    'Turkey', 'Armada Tower B, Floor 10',       'ANK-HQ',   'Europe/Istanbul', 39.9334, 32.8597),
 ('Izmir Regional Office',         'Izmir',     'Turkey', 'Folkart Towers A Block',         'IZM-HQ',   'Europe/Istanbul', 38.4237, 27.1428);
+
+
+-- ==================================================================================
+-- 2b. USER LOCATION ACCESS (RBAC Mappings)
+-- ==================================================================================
+WITH locs AS (
+  SELECT id, row_number() OVER (ORDER BY id) AS rn, count(*) OVER () AS total
+  FROM locations
+),
+users_rn AS (
+  SELECT id, role, row_number() OVER (ORDER BY id) AS rn
+  FROM users
+)
+INSERT INTO user_location_access (user_id, location_id, permission)
+SELECT
+    u.id,
+    l.id,
+    CASE WHEN u.role = 'admin' THEN 'write' ELSE 'read' END
+FROM users_rn u
+JOIN locs l
+  ON u.role = 'admin'
+  OR l.rn IN (((u.rn - 1) % l.total) + 1, ((u.rn) % l.total) + 1);
 
 
 -- ==================================================================================
@@ -158,6 +180,54 @@ FROM bulk_devs;
 
 
 -- ==================================================================================
+-- 5b. INTERFACE VLAN MAPPINGS
+-- ==================================================================================
+-- Access interfaces get one native VLAN per site
+WITH access_ints AS (
+    SELECT i.id AS interface_id, d.location_id,
+           row_number() OVER (PARTITION BY d.location_id ORDER BY i.id) AS rn
+    FROM interfaces i
+    JOIN devices d ON d.id = i.device_id
+    WHERE i.name = 'Access-Eth1'
+),
+loc_vlans AS (
+    SELECT id AS vlan_id, location_id,
+           row_number() OVER (PARTITION BY location_id ORDER BY vlan_id) AS rn,
+           count(*) OVER (PARTITION BY location_id) AS total
+    FROM vlans
+    WHERE location_id IS NOT NULL
+)
+INSERT INTO interface_vlans (interface_id, vlan_id, tagging, is_native)
+SELECT a.interface_id, v.vlan_id, 'untagged', true
+FROM access_ints a
+JOIN loc_vlans v
+  ON v.location_id = a.location_id
+ AND v.rn = ((a.rn - 1) % v.total) + 1;
+
+-- Uplink interfaces get two tagged VLANs per site
+WITH uplinks AS (
+    SELECT i.id AS interface_id, d.location_id,
+           row_number() OVER (PARTITION BY d.location_id ORDER BY i.id) AS rn
+    FROM interfaces i
+    JOIN devices d ON d.id = i.device_id
+    WHERE i.name = 'Uplink-Eth0'
+),
+loc_vlans AS (
+    SELECT id AS vlan_id, location_id,
+           row_number() OVER (PARTITION BY location_id ORDER BY vlan_id) AS rn,
+           count(*) OVER (PARTITION BY location_id) AS total
+    FROM vlans
+    WHERE location_id IS NOT NULL
+)
+INSERT INTO interface_vlans (interface_id, vlan_id, tagging, is_native)
+SELECT u.interface_id, v.vlan_id, 'tagged', false
+FROM uplinks u
+JOIN loc_vlans v
+  ON v.location_id = u.location_id
+ AND v.rn IN (((u.rn - 1) % v.total) + 1, ((u.rn) % v.total) + 1);
+
+
+-- ==================================================================================
 -- 6. LINKS (Topology) - Explicit Generation
 -- ==================================================================================
 -- Generate 5000 random links between devices
@@ -186,50 +256,147 @@ FROM pairs;
 
 
 -- ==================================================================================
--- 7. METRICS (Guaranteed Snapshot)
+-- 7. METRICS (Time Series)
 -- ==================================================================================
--- Insert one metric record for EVERY device
+-- 3 snapshots per device over the last 12 hours
+WITH snapshots AS (
+    SELECT d.id AS device_id, gs.i AS seq
+    FROM devices d
+    CROSS JOIN generate_series(0, 2) AS gs(i)
+)
 INSERT INTO device_metrics (device_id, cpu, memory, temp, uptime_seconds, ts)
 SELECT
-    id,
-    (random() * 90)::numeric(5,2),
-    (random() * 90)::numeric(5,2),
-    (random() * 50 + 20)::numeric(5,2),
-    (random() * 1000000)::bigint,
-    NOW()
-FROM devices;
+    s.device_id,
+    (random() * 80 + 5)::numeric(5,2),
+    (random() * 80 + 5)::numeric(5,2),
+    (random() * 45 + 20)::numeric(5,2),
+    (random() * 900000 + (s.seq * 14400))::bigint,
+    NOW() - (s.seq * INTERVAL '4 hours')
+FROM snapshots s;
 
 
 -- ==================================================================================
 -- 8. EVENTS
 -- ==================================================================================
+-- Device events (4,000)
+WITH devs AS (
+    SELECT id, location_id, row_number() OVER (ORDER BY id) AS rn
+    FROM devices
+),
+stats AS (
+    SELECT count(*) AS total FROM devs
+),
+series AS (
+    SELECT generate_series(1, 4000) AS i
+)
 INSERT INTO events (severity, type, message, device_id, location_id, created_at)
 SELECT
-    CASE WHEN i % 20 = 0 THEN 'critical' WHEN i % 10 = 0 THEN 'warning' ELSE 'info' END,
-    'system',
-    'Event log #' || i,
+    CASE WHEN s.i % 20 = 0 THEN 'critical' WHEN s.i % 10 = 0 THEN 'warning' ELSE 'info' END,
+    CASE WHEN s.i % 7 = 0 THEN 'security' ELSE 'system' END,
+    'Device event #' || s.i,
     d.id,
     d.location_id,
-    NOW() - (random() * INTERVAL '7 days')
-FROM (
-    SELECT id, location_id 
-    FROM devices 
-    WHERE hostname LIKE 'bulk-dev-%' 
-    ORDER BY random() 
-    LIMIT 5000
-) d
-CROSS JOIN generate_series(1, 1) AS i;
+    NOW() - (s.i % 168) * INTERVAL '1 hour'
+FROM series s
+JOIN stats st ON true
+JOIN devs d ON d.rn = ((s.i - 1) % st.total) + 1;
+
+-- Interface events (2,000)
+WITH ints AS (
+    SELECT i.id AS interface_id, i.device_id, d.location_id, row_number() OVER (ORDER BY i.id) AS rn
+    FROM interfaces i
+    JOIN devices d ON d.id = i.device_id
+),
+stats AS (
+    SELECT count(*) AS total FROM ints
+),
+series AS (
+    SELECT generate_series(1, 2000) AS i
+)
+INSERT INTO events (severity, type, message, device_id, interface_id, location_id, created_at)
+SELECT
+    CASE WHEN s.i % 15 = 0 THEN 'critical' WHEN s.i % 6 = 0 THEN 'warning' ELSE 'info' END,
+    'interface',
+    'Interface event #' || s.i,
+    t.device_id,
+    t.interface_id,
+    t.location_id,
+    NOW() - (s.i % 72) * INTERVAL '1 hour'
+FROM series s
+JOIN stats st ON true
+JOIN ints t ON t.rn = ((s.i - 1) % st.total) + 1;
 
 -- ==================================================================================
 -- 9. AUDIT LOGS
 -- ==================================================================================
+-- Device audit trail (150)
+WITH users_rn AS (
+    SELECT id, row_number() OVER (ORDER BY id) AS rn, count(*) OVER () AS total
+    FROM users
+),
+devs AS (
+    SELECT id, row_number() OVER (ORDER BY id) AS rn, count(*) OVER () AS total
+    FROM devices
+),
+series AS (
+    SELECT generate_series(1, 150) AS i
+)
 INSERT INTO audit_logs (user_id, action, resource_type, resource_id, ip_address, created_at)
-SELECT 
-    (SELECT id FROM users WHERE username='admin'),
-    'update',
+SELECT
+    u.id,
+    CASE WHEN s.i % 3 = 0 THEN 'create' WHEN s.i % 3 = 1 THEN 'update' ELSE 'delete' END,
     'device',
     d.id,
-    '127.0.0.1',
-    NOW()
-FROM devices d 
-LIMIT 100;
+    '10.0.0.' || (s.i % 255),
+    NOW() - (s.i * INTERVAL '5 minutes')
+FROM series s
+JOIN users_rn u ON u.rn = ((s.i - 1) % u.total) + 1
+JOIN devs d ON d.rn = ((s.i - 1) % d.total) + 1;
+
+-- Interface audit trail (100)
+WITH users_rn AS (
+    SELECT id, row_number() OVER (ORDER BY id) AS rn, count(*) OVER () AS total
+    FROM users
+),
+ints AS (
+    SELECT id, row_number() OVER (ORDER BY id) AS rn, count(*) OVER () AS total
+    FROM interfaces
+),
+series AS (
+    SELECT generate_series(1, 100) AS i
+)
+INSERT INTO audit_logs (user_id, action, resource_type, resource_id, ip_address, created_at)
+SELECT
+    u.id,
+    'update',
+    'interface',
+    i.id,
+    '10.0.1.' || (s.i % 255),
+    NOW() - (s.i * INTERVAL '7 minutes')
+FROM series s
+JOIN users_rn u ON u.rn = ((s.i - 1) % u.total) + 1
+JOIN ints i ON i.rn = ((s.i - 1) % i.total) + 1;
+
+-- Location audit trail (50)
+WITH users_rn AS (
+    SELECT id, row_number() OVER (ORDER BY id) AS rn, count(*) OVER () AS total
+    FROM users
+),
+locs AS (
+    SELECT id, row_number() OVER (ORDER BY id) AS rn, count(*) OVER () AS total
+    FROM locations
+),
+series AS (
+    SELECT generate_series(1, 50) AS i
+)
+INSERT INTO audit_logs (user_id, action, resource_type, resource_id, ip_address, created_at)
+SELECT
+    u.id,
+    'update',
+    'location',
+    l.id,
+    '10.0.2.' || (s.i % 255),
+    NOW() - (s.i * INTERVAL '10 minutes')
+FROM series s
+JOIN users_rn u ON u.rn = ((s.i - 1) % u.total) + 1
+JOIN locs l ON l.rn = ((s.i - 1) % l.total) + 1;

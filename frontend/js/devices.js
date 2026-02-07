@@ -318,8 +318,8 @@ async function openDeviceForm(device = null) {
             </div>
             <div class="grid-2">
                 <div class="form-group">
-                    <label>OS Family</label>
-                    <input type="text" name="os" class="input" value="${isEdit ? escapeHtml(device.os || '') : ''}" placeholder="IOS-XE">
+                    <label>OS Family *</label>
+                    <input type="text" name="os" class="input" required value="${isEdit ? escapeHtml(device.os || '') : ''}" placeholder="IOS-XE">
                 </div>
                  <div class="form-group">
                     <label>OS Version</label>

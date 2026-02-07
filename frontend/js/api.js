@@ -1,7 +1,30 @@
 import store from './state.js';
 import { showToast } from './components.js';
 
-const BASE_URL = window.location.protocol + '//' + window.location.hostname + ':3000';
+function normalizeBaseUrl(url) {
+    if (!url) return '';
+    return String(url).replace(/\/+$/, '');
+}
+
+function resolveBaseUrl() {
+    // 1) Explicit override via global or localStorage
+    const globalOverride = normalizeBaseUrl(window.API_BASE_URL);
+    if (globalOverride) return globalOverride;
+
+    const stored = normalizeBaseUrl(localStorage.getItem('api_base_url'));
+    if (stored) return stored;
+
+    // 2) Meta tag override (optional)
+    const meta = document.querySelector('meta[name="api-base-url"]');
+    if (meta && meta.content) return normalizeBaseUrl(meta.content);
+
+    // 3) Default: same host, API on :3000 (works with Docker setup)
+    const protocol = window.location.protocol === 'file:' ? 'http:' : window.location.protocol;
+    const hostname = window.location.hostname || 'localhost';
+    return `${protocol}//${hostname}:3000`;
+}
+
+const BASE_URL = resolveBaseUrl();
 
 function normalizeParams(params) {
     const p = { ...(params || {}) };
@@ -12,7 +35,7 @@ function normalizeParams(params) {
     }
 
     if (p.sort && !p.sortby) {
-        p.sortby = `${p.sort}:asc`;
+        p.sortby = p.sort.includes(':') ? p.sort : `${p.sort}:asc`;
         delete p.sort;
     }
 
@@ -30,7 +53,8 @@ async function request(endpoint, options = {}) {
     }
 
     try {
-        const response = await fetch(`${BASE_URL}${endpoint}`, {
+        const url = `${BASE_URL}${endpoint}`;
+        const response = await fetch(url, {
             ...options,
             headers
         });
@@ -42,7 +66,8 @@ async function request(endpoint, options = {}) {
 
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
-            throw new Error(errorData.message || response.statusText);
+            const message = errorData.message || response.statusText || 'Request failed';
+            throw new Error(`${message} [${endpoint}]`);
         }
 
         if (response.status === 204) return null;
@@ -134,10 +159,10 @@ export default {
     createEvent: (data) => request('/events', { method: 'POST', body: JSON.stringify(data) }),
 
     getMetrics: (params) => {
-        const q = new URLSearchParams(normalizeParams(params)).toString();
+        const q = new URLSearchParams(params || {}).toString();
         return request(`/metrics?${q}`);
     },
-    getLatestDeviceMetrics: (id) => request(`/devices/${id}/metrics/latest`),
+    getLatestDeviceMetrics: (id) => request(`/metrics/device/${id}`),
 
     login: (username, password) => request('/users/login', {
         method: 'POST',
